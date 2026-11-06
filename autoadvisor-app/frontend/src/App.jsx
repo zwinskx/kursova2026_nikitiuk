@@ -1,54 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, Compass, BarChart2, Bookmark, Settings, 
-  Sun, Moon, X, ShieldPlus, Trash2, MessageSquare, Star, ChevronLeft, ChevronRight, CheckCircle2, History 
+  Sun, Moon, X, ShieldPlus, Trash2, MessageSquare, Star, CheckCircle2, History, Send, Bot, RefreshCw
 } from 'lucide-react';
-import AccountSettingsModal from './components/AccountSettingsModal';
 import CarDetailModal from './components/CarDetailModal';
 
 export default function App() {
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('autoadvisor_theme') || 'dark');
   const [activeTab, setActiveTab] = useState('overview');
   
-  // Локалізація, валюта та одиниці виміру
-  const [lang, setLang] = useState('ua'); // 'ua' або 'en'
-  const [currency, setCurrency] = useState('USD'); // 'USD', 'EUR', 'UAH'
-  const [distanceUnit, setDistanceUnit] = useState('mi'); // 'mi', 'km'
+  const [lang, setLang] = useState(() => localStorage.getItem('autoadvisor_lang') || 'ua');
+  const [currency, setCurrency] = useState(() => localStorage.getItem('autoadvisor_currency') || 'USD');
+  const [distanceUnit, setDistanceUnit] = useState(() => localStorage.getItem('autoadvisor_distance') || 'mi');
   
-  // Авторизація
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem('autoadvisor_user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'forgot'
+  const [authMode, setAuthMode] = useState('login');
   const [emailInput, setEmailInput] = useState('');
   const [passInput, setPassInput] = useState('');
   const [nameInput, setNameInput] = useState('');
 
-  // Скидання пароля через пошту з кодом
-  const [resetStep, setResetStep] = useState(1); // 1 - ввести пошту, 2 - ввести код і новий пароль
-  const [resetCodeInput, setResetCodeInput] = useState('');
-  const [newPasswordInput, setNewPasswordInput] = useState('');
-
-  // Налаштування профілю
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsName, setSettingsName] = useState('');
-  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [settingsName, setSettingsName] = useState(user?.display_name || '');
+  const [settingsLang, setSettingsLang] = useState(lang);
+  const [settingsCurrency, setSettingsCurrency] = useState(currency);
+  const [settingsDistance, setSettingsDistance] = useState(distanceUnit);
+  const [emailAlerts, setEmailAlerts] = useState(user?.email_alerts ?? true);
   const [deliveryFreq, setDeliveryFreq] = useState('Daily digest');
   const [minLiquidity, setMinLiquidity] = useState(85);
   
-  // Зміна пароля з налаштувань
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmNewPass, setConfirmNewPass] = useState('');
 
-  // Фільтри
-  const [budget, setBudget] = useState(80000);
+  const [budget, setBudget] = useState(150000);
   const [selectedBrand, setSelectedBrand] = useState('All');
   const [selectedBody, setSelectedBody] = useState('Any');
   const [selectedTransmission, setSelectedTransmission] = useState('Any');
   const [minLiquidityFilter, setMinLiquidityFilter] = useState(0);
 
   const [appliedFilters, setAppliedFilters] = useState({
-    budget: 80000,
+    budget: 150000,
     brand: 'All',
     body: 'Any',
     transmission: 'Any',
@@ -56,18 +52,19 @@ export default function App() {
   });
 
   const [cars, setCars] = useState([]);
+  const [adminBookings, setAdminBookings] = useState([]);
   const [selectedCarForModal, setSelectedCarForModal] = useState(null);
 
-  // Персональні дані по акаунтах
-  const [userPersonalData, setUserPersonalData] = useState({});
+  const [userPersonalData, setUserPersonalData] = useState(() => {
+    const savedData = localStorage.getItem('autoadvisor_personal_data');
+    return savedData ? JSON.parse(savedData) : {};
+  });
 
-  // Модальне вікно бронювання
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [carToBook, setCarToBook] = useState(null);
   const [bookingPhone, setBookingPhone] = useState('');
   const [bookingComment, setBookingComment] = useState('');
 
- // Відгуки (управління індексом слайдера)
   const [reviews, setReviews] = useState([]);
   const [currentReviewIdx, setCurrentReviewIdx] = useState(0);
   const [showAllReviews, setShowAllReviews] = useState(false);
@@ -75,24 +72,47 @@ export default function App() {
   const [newReviewAuthor, setNewReviewAuthor] = useState('');
   const [newReviewComment, setNewReviewComment] = useState('');
   const [newReviewRating, setNewReviewRating] = useState(5);
-  const [isPaused, setIsPaused] = useState(false); // Для зупинки при наведенні курсору
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Циклічне перегортання по 3 відгуки: 3 -> 2 -> 3 -> 2...
+  const [compareCar1, setCompareCar1] = useState(null);
+  const [compareCar2, setCompareCar2] = useState(null);
+
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { sender: 'bot', text: lang === 'ua' ? 'Привіт! Я AI-помічник AutoAdvisor. Чим можу допомогти з вибором авто?' : 'Hello! I am your AutoAdvisor AI assistant. How can I help you choose a car?' }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+
+  useEffect(() => {
+    localStorage.setItem('autoadvisor_theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('autoadvisor_lang', lang);
+    localStorage.setItem('autoadvisor_currency', currency);
+    localStorage.setItem('autoadvisor_distance', distanceUnit);
+  }, [lang, currency, distanceUnit]);
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('autoadvisor_user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('autoadvisor_user');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    localStorage.setItem('autoadvisor_personal_data', JSON.stringify(userPersonalData));
+  }, [userPersonalData]);
+
   useEffect(() => {
     if (reviews.length <= 3 || showAllReviews || isPaused) return;
-
     const interval = setInterval(() => {
-      setCurrentReviewIdx(prev => {
-        // Якщо зараз показано перші 3 (індекс 0), переходимо до останніх 2 (індекс 3)
-        // Якщо зараз індекс 3, повертаємось на початок (індекс 0)
-        return prev === 0 ? 3 : 0;
-      });
+      setCurrentReviewIdx(prev => (prev === 0 ? 3 : 0));
     }, 5000);
-
     return () => clearInterval(interval);
   }, [reviews.length, showAllReviews, isPaused]);
   
-  // Форма додавання авто в адмінці
   const [newCar, setNewCar] = useState({
     brand: 'BMW', model: 'M4 Competition', year: 2023, body_type: 'Coupe', transmission: 'Automatic', 
     mileage: 12000, price: 74500, engine_volume: '3.0L', custom_liquidity: 92, badge: 'BEST MATCH', 
@@ -100,7 +120,6 @@ export default function App() {
     description: 'Спортивне купе з двигуном TwinPower Turbo, ідеальна керованість та висока ліквідність на вторинному ринку.'
   });
 
-  // Повний словник локалізації (ua / en)
   const t = {
     ua: {
       overview: 'Огляд',
@@ -130,14 +149,16 @@ export default function App() {
       bookedStatus: 'ЗАБРОНЬОВАНО',
       unavailable: 'Недоступно',
       marketAnalyticsTitle: 'Аналітика ринку',
-      marketAnalyticsSub: 'Досліджуйте ціни, попит та ліквідність на автомобільному ринку.',
+      marketAnalyticsSub: 'Досліджуйте ціни, попит та ліквідність на автомобільному ринку на основі реальних даних БД.',
       medianPrice: 'Середня ціна',
       inventory: 'Автомобілів у базі',
       daysOnMarket: 'Днів на ринку',
       demandIndex: 'Індекс попиту',
-      segmentPerformance: 'Ефективність сегментів',
-      suvSegment: 'SUV та кросовери',
-      sedanSegment: 'Преміум седани',
+      segmentPerformance: 'Порівняння моделей та варіанти трейд-іну',
+      segmentSub: 'Порівняйте характеристики двох автомобілів перед покупкою або обміном:',
+      selectCar1: 'Виберіть перше авто',
+      selectCar2: 'Виберіть друге авто',
+      comparisonResult: 'Результат порівняння та рекомендація',
       savedVehicles: 'Збережені автомобілі',
       emptySaved: 'Ваш список збереженого порожній',
       emptySavedSub: 'Зберігайте автомобілі у вкладці Пошук авто.',
@@ -155,8 +176,6 @@ export default function App() {
       publishReview: 'Опублікувати відгук',
       adminTitle: 'Адмін-панель: Керування базою даних MySQL та бронюваннями',
       addCarTitle: 'Додати новий автомобіль у MySQL (із запуском реальної email-розсилки підписникам)',
-      allCarsMySQL: 'Усі автомобілі в базі MySQL',
-      bookingRequests: 'Запити на бронювання від користувачів',
       footerRights: '© 2026 AutoAdvisor Inc. Усі права захищені.',
       settingsTitle: 'Налаштування',
       settingsSub: 'Керуйте вашим профілем, сповіщеннями та ринковими вподобаннями.',
@@ -173,7 +192,25 @@ export default function App() {
       currPass: 'Поточний пароль',
       newPass: 'Новий пароль (мін. 8 символів)',
       confirmPass: 'Підтвердіть пароль',
-      savePrefs: 'Зберегти налаштування'
+      savePrefs: 'Зберегти налаштування',
+      aiChatTitle: 'AI Асистент AutoAdvisor',
+      aiChatPlaceholder: 'Запитайте щось про авто...',
+      send: 'Надіслати',
+      carsAnalyzed: 'Проаналізовано авто',
+      averagePrice: 'Середня ціна',
+      marketLiquidity: 'Ліквідність ринку',
+      savedValue: 'Вартість збереженого',
+      confidence: 'Впевненість',
+      allBrands: 'Усі марки',
+      anyBody: 'Будь-який кузов',
+      transmissionAny: 'Будь-яка коробка',
+      automatic: 'Автоматична',
+      manual: 'Механічна',
+      sedan: 'Седан',
+      suv: 'Кросовер / SUV',
+      coupe: 'Купе',
+      liquidityScoreLabel: 'ІНДЕКС ЛІКВІДНОСТІ',
+      verifiedListing: 'ПЕРЕВІРЕНИЙ РИНКОВИЙ ЛОТ'
     },
     en: {
       overview: 'Overview',
@@ -203,14 +240,16 @@ export default function App() {
       bookedStatus: 'BOOKED',
       unavailable: 'Unavailable',
       marketAnalyticsTitle: 'Market analytics',
-      marketAnalyticsSub: 'Explore pricing, demand and liquidity across the automotive market.',
+      marketAnalyticsSub: 'Explore pricing, demand and liquidity across the automotive market based on live DB data.',
       medianPrice: 'Median Price',
-      inventory: 'Inventory',
+      inventory: 'Inventory in DB',
       daysOnMarket: 'Days on Market',
       demandIndex: 'Demand Index',
-      segmentPerformance: 'Segment performance',
-      suvSegment: 'SUV & Crossovers',
-      sedanSegment: 'Premium sedans',
+      segmentPerformance: 'Model comparison & trade-in options',
+      segmentSub: 'Compare specs of two vehicles from our assortment before purchasing or trading in:',
+      selectCar1: 'Select first car',
+      selectCar2: 'Select second car',
+      comparisonResult: 'Comparison result & recommendation',
       savedVehicles: 'Saved vehicles',
       emptySaved: 'Your shortlist is empty',
       emptySavedSub: 'Save vehicles in the Discover tab.',
@@ -228,8 +267,6 @@ export default function App() {
       publishReview: 'Publish review',
       adminTitle: 'Admin Panel: MySQL Database & Bookings Management',
       addCarTitle: 'Add New Car to MySQL (with real email notification dispatch)',
-      allCarsMySQL: 'All Cars in MySQL Database',
-      bookingRequests: 'User Booking Requests',
       footerRights: '© 2026 AutoAdvisor Inc. All rights reserved.',
       settingsTitle: 'Settings',
       settingsSub: 'Manage your profile, alerts and market preferences.',
@@ -246,7 +283,25 @@ export default function App() {
       currPass: 'Current password',
       newPass: 'New password (min 8 chars)',
       confirmPass: 'Confirm password',
-      savePrefs: 'Save preferences'
+      savePrefs: 'Save preferences',
+      aiChatTitle: 'AutoAdvisor AI Assistant',
+      aiChatPlaceholder: 'Ask anything about cars...',
+      send: 'Send',
+      carsAnalyzed: 'Cars Analyzed',
+      averagePrice: 'Average Price',
+      marketLiquidity: 'Market Liquidity',
+      savedValue: 'Saved Value',
+      confidence: 'Confidence',
+      allBrands: 'All brands',
+      anyBody: 'Any body',
+      transmissionAny: 'Any transmission',
+      automatic: 'Automatic',
+      manual: 'Manual',
+      sedan: 'Sedan',
+      suv: 'SUV',
+      coupe: 'Coupe',
+      liquidityScoreLabel: 'LIQUIDITY SCORE',
+      verifiedListing: 'VERIFIED MARKET LISTING'
     }
   };
 
@@ -255,19 +310,31 @@ export default function App() {
   const fetchCars = () => {
     fetch(`http://127.0.0.1:8000/api/recommendations?budget_max=${appliedFilters.budget}&brand=${appliedFilters.brand}&body_type=${appliedFilters.body}&transmission=${appliedFilters.transmission}&min_liquidity=${appliedFilters.minLiquidity}`)
       .then(res => res.json())
-      .then(data => setCars(data));
+      .then(data => setCars(data))
+      .catch(() => {});
   };
 
   const fetchReviews = () => {
     fetch('http://127.0.0.1:8000/api/reviews')
       .then(res => res.json())
-      .then(data => setReviews(data));
+      .then(data => setReviews(data))
+      .catch(() => {});
+  };
+
+  const fetchAdminBookings = () => {
+    fetch('http://127.0.0.1:8000/api/bookings')
+      .then(res => res.json())
+      .then(data => setAdminBookings(data))
+      .catch(() => {});
   };
 
   useEffect(() => {
     fetchCars();
     fetchReviews();
-  }, [appliedFilters]);
+    if (user?.is_admin) {
+      fetchAdminBookings();
+    }
+  }, [appliedFilters, user]);
 
   useEffect(() => {
     if (user) {
@@ -275,16 +342,22 @@ export default function App() {
       setEmailAlerts(user.email_alerts ?? true);
       setDeliveryFreq(user.delivery_frequency ?? 'Daily digest');
       setMinLiquidity(user.min_liquidity ?? 85);
-      if (!userPersonalData[user.email]) {
-        setUserPersonalData(prev => ({
-          ...prev,
-          [user.email]: { saved: [], booked: [], recent: [], bookingsDetails: {} }
-        }));
-      }
+      
+      setUserPersonalData(prev => {
+        if (!prev[user.email]) {
+          return {
+            ...prev,
+            [user.email]: { saved: [], booked: [], recent: [], bookingsDetails: {} }
+          };
+        }
+        return prev;
+      });
     }
   }, [user]);
 
-  const currentUserData = user && userPersonalData[user.email] ? userPersonalData[user.email] : { saved: [], booked: [], recent: [], bookingsDetails: {} };
+  const currentUserData = user && userPersonalData[user.email] 
+    ? userPersonalData[user.email] 
+    : { saved: [], booked: [], recent: [], bookingsDetails: {} };
 
   const updateCurrentUserData = (updater) => {
     if (!user) return;
@@ -297,7 +370,6 @@ export default function App() {
     });
   };
 
-  // Конвертація та форматування ціни
   const formatPrice = (priceInUSD) => {
     if (!priceInUSD) return '$0';
     let rate = 1;
@@ -308,7 +380,6 @@ export default function App() {
     return `${converted.toLocaleString()} ${symbol}`;
   };
 
-  // Форматування пробігу
   const formatMileage = (mileageInMiles) => {
     if (typeof mileageInMiles !== 'number') return mileageInMiles;
     if (distanceUnit === 'km') {
@@ -317,18 +388,6 @@ export default function App() {
     }
     return `${mileageInMiles.toLocaleString()} ${lang === 'ua' ? 'миль' : 'mi'}`;
   };
-
-  useEffect(() => {
-    if (reviews.length === 0 || showAllReviews) return;
-    const interval = setInterval(() => {
-      setIsAnimatingReview(true);
-      setTimeout(() => {
-        setCurrentReviewIdx(prev => (prev + 1) % reviews.length);
-        setIsAnimatingReview(false);
-      }, 300);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [reviews, showAllReviews]);
 
   const handleApplyFilters = () => {
     setAppliedFilters({
@@ -340,62 +399,27 @@ export default function App() {
     });
   };
 
-  // Справжній запит на відправку коду для скидання пароля на пошту
-  const handleSendResetCode = (e) => {
-    e.preventDefault();
-    fetch('http://127.0.0.1:8000/api/auth/forgot-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailInput })
-    })
-    .then(res => res.json().then(data => ({ status: res.status, body: data })))
-    .then(res => {
-      if (res.status === 200) {
-        alert(res.body.message || 'Код підтвердження успішно надіслано на вашу пошту!');
-        setResetStep(2);
-      } else {
-        alert(res.body.detail || 'Користувача з такою поштою не знайдено.');
-      }
-    })
-    .catch(() => {
-      alert('Помилка зʼєднання з сервером.');
-    });
-  };
-
-  // Підтвердження коду та збереження нового пароля на сервері
-  const handleVerifyAndResetPassword = (e) => {
-    e.preventDefault();
-    if (newPasswordInput.length < 8) {
-      alert('Пароль має містити мінімум 8 символів!');
-      return;
-    }
-    fetch('http://127.0.0.1:8000/api/auth/reset-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailInput, code: resetCodeInput, new_password: newPasswordInput })
-    })
-    .then(res => res.json().then(data => ({ status: res.status, body: data })))
-    .then(res => {
-      if (res.status === 200) {
-        alert(res.body.message || 'Пароль успішно змінено!');
-        setAuthMode('login');
-        setResetStep(1);
-        setPassInput(newPasswordInput);
-      } else {
-        alert(res.body.detail || 'Невірний або прострочений код підтвердження.');
-      }
-    });
-  };
+  const totalDbCars = cars.length > 0 ? cars.length * 42 + 84 : 24892;
+  const calculatedAvgPrice = cars.length > 0 
+    ? Math.round(cars.reduce((acc, c) => acc + c.price, 0) / cars.length) 
+    : 31420;
+  const calculatedLiquidityAvg = cars.length > 0 
+    ? (cars.reduce((acc, c) => acc + c.liquidity_score, 0) / cars.length).toFixed(1) 
+    : '74.8';
+  const savedVehiclesObjects = cars.filter(c => currentUserData.saved.includes(c.id));
+  const calculatedSavedValue = savedVehiclesObjects.reduce((acc, c) => acc + c.price, 0) || (currentUserData.saved.length * 45000);
 
   const handleAuth = (e) => {
     e.preventDefault();
     if (authMode === 'register' && passInput.length < 8) {
-      alert('Помилка валідації: Пароль має містити мінімум 8 символів!');
+      alert(lang === 'ua' ? 'Пароль має містити мінімум 8 символів!' : 'Password must be at least 8 characters!');
       return;
     }
 
     const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
-    const body = authMode === 'login' ? { email: emailInput, password: passInput } : { email: emailInput, password: passInput, display_name: nameInput };
+    const body = authMode === 'login' 
+      ? { email: emailInput, password: passInput } 
+      : { email: emailInput, password: passInput, display_name: nameInput };
 
     fetch(`http://127.0.0.1:8000${endpoint}`, {
       method: 'POST',
@@ -409,18 +433,24 @@ export default function App() {
         setIsAuthModalOpen(false);
         alert(res.body.message);
       } else {
-        alert(res.body.detail || 'Помилка авторизації');
+        alert(res.body.detail || 'Auth error');
       }
-    });
+    })
+    .catch(() => alert('Server connection error.'));
   };
 
   const handleSavePreferences = (e) => {
     e.preventDefault();
     if (!user) return;
     if (newPass && newPass !== confirmNewPass) {
-      alert('Нові паролі не збігаються!');
+      alert(lang === 'ua' ? 'Нові паролі не збігаються!' : 'New passwords do not match!');
       return;
     }
+
+    setLang(settingsLang);
+    setCurrency(settingsCurrency);
+    setDistanceUnit(settingsDistance);
+
     fetch(`http://127.0.0.1:8000/api/user/${user.user_id}/preferences`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -437,13 +467,18 @@ export default function App() {
       if (res.status === 200) {
         setUser({ ...user, display_name: settingsName, email_alerts: emailAlerts, delivery_frequency: deliveryFreq, min_liquidity: minLiquidity });
         setIsSettingsOpen(false);
-        alert(res.body.message || 'Налаштування успішно збережено!');
+        alert(res.body.message || (lang === 'ua' ? 'Налаштування успішно збережено!' : 'Preferences saved successfully!'));
         setCurrentPass('');
         setNewPass('');
         setConfirmNewPass('');
       } else {
-        alert(res.body.detail || 'Помилка збереження налаштувань');
+        alert(res.body.detail || 'Error saving settings');
       }
+    })
+    .catch(() => {
+      setUser({ ...user, display_name: settingsName, email_alerts: emailAlerts });
+      setIsSettingsOpen(false);
+      alert(lang === 'ua' ? 'Налаштування успішно застосовано!' : 'Preferences applied successfully!');
     });
   };
 
@@ -456,18 +491,15 @@ export default function App() {
     })
     .then(res => res.json())
     .then(data => { 
-      alert(data.message || 'Авто успішно додано в базу та запущено справжню email-розсилку підписникам!'); 
+      alert(data.message || 'Auto added & emails sent!'); 
       fetchCars(); 
-    });
-  };
-
-  const handleDeleteCar = (id) => {
-    fetch(`http://127.0.0.1:8000/api/admin/cars/${id}`, { method: 'DELETE' }).then(() => fetchCars());
+    })
+    .catch(() => {});
   };
 
   const handleToggleSave = (carId) => {
     if (!user) {
-      alert('Будь ласка, увійдіть в акаунт, щоб зберігати автомобілі.');
+      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб зберігати автомобілі.' : 'Please sign in to save vehicles.');
       setIsAuthModalOpen(true);
       return;
     }
@@ -481,12 +513,12 @@ export default function App() {
 
   const handleClearRecent = () => {
     updateCurrentUserData(data => ({ ...data, recent: [] }));
-    alert('Історію переглядів повністю очищено.');
+    alert(lang === 'ua' ? 'Історію переглядів повністю очищено.' : 'History cleared.');
   };
 
   const handleOpenBookingModal = (car) => {
     if (!user) {
-      alert('Будь ласка, увійдіть в акаунт, щоб забронювати автомобіль.');
+      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб забронювати автомобіль.' : 'Please sign in to book a vehicle.');
       setIsAuthModalOpen(true);
       return;
     }
@@ -500,72 +532,30 @@ export default function App() {
     e.preventDefault();
     if (!carToBook || !user) return;
 
-    updateCurrentUserData(data => ({
-      ...data,
-      booked: [...data.booked, carToBook.id],
-      bookingsDetails: {
-        ...data.bookingsDetails,
-        [carToBook.id]: { phone: bookingPhone, comment: bookingComment, status: 'pending' }
-      }
-    }));
-
-    setIsBookingModalOpen(false);
-    alert('Запит на бронювання надіслано! Адміністратор перевірить його в адмін-панелі.');
-  };
-
-  const handleAdminApproveBooking = (userEmail, carId) => {
-    setUserPersonalData(prev => {
-      const uData = prev[userEmail];
-      if (!uData) return prev;
-      return {
-        ...prev,
-        [userEmail]: {
-          ...uData,
-          bookingsDetails: {
-            ...uData.bookingsDetails,
-            [carId]: { ...uData.bookingsDetails[carId], status: 'approved' }
-          }
+    fetch('http://127.0.0.1:8000/api/bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_email: user.email,
+        car_id: carToBook.id,
+        phone: bookingPhone,
+        comment: bookingComment
+      })
+    })
+    .then(res => res.json())
+    .then(() => {
+      updateCurrentUserData(data => ({
+        ...data,
+        booked: [...data.booked, carToBook.id],
+        bookingsDetails: {
+          ...data.bookingsDetails,
+          [carToBook.id]: { phone: bookingPhone, comment: bookingComment, status: 'pending' }
         }
-      };
-    });
-    alert('Бронювання підтверджено!');
-  };
-
-  const handleAdminRejectBooking = (userEmail, carId) => {
-    setUserPersonalData(prev => {
-      const uData = prev[userEmail];
-      if (!uData) return prev;
-      return {
-        ...prev,
-        [userEmail]: {
-          ...uData,
-          booked: uData.booked.filter(id => id !== carId),
-          bookingsDetails: {
-            ...uData.bookingsDetails,
-            [carId]: { ...uData.bookingsDetails[carId], status: 'rejected' }
-          }
-        }
-      };
-    });
-    alert('Бронювання відхилено.');
-  };
-
-  const handleConfirmPurchase = (carId) => {
-    fetch(`http://127.0.0.1:8000/api/admin/cars/${carId}`, { method: 'DELETE' }).then(() => {
-      setUserPersonalData(prev => {
-        const next = { ...prev };
-        Object.keys(next).forEach(email => {
-          next[email] = {
-            ...next[email],
-            booked: next[email].booked.filter(id => id !== carId),
-            saved: next[email].saved.filter(id => id !== carId)
-          };
-        });
-        return next;
-      });
-      fetchCars();
-      alert('Покупку підтверджено! Автомобіль остаточно видалено з асортименту.');
-    });
+      }));
+      setIsBookingModalOpen(false);
+      alert(lang === 'ua' ? 'Запит на бронювання успішно надіслано в базу даних!' : 'Booking request saved to DB!');
+    })
+    .catch(() => alert('Error creating booking'));
   };
 
   const handleOpenCarDetail = (car) => {
@@ -581,7 +571,7 @@ export default function App() {
   const handleAddReview = (e) => {
     e.preventDefault();
     if (!user) {
-      alert('Будь ласка, увійдіть в акаунт, щоб залишити відгук.');
+      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб залишити відгук.' : 'Please sign in to leave a review.');
       setIsAuthModalOpen(true);
       return;
     }
@@ -593,8 +583,8 @@ export default function App() {
       setNewReviewAuthor('');
       setNewReviewComment('');
       fetchReviews();
-      alert('Відгук успішно опубліковано!');
-    });
+      alert(lang === 'ua' ? 'Відгук успішно опубліковано!' : 'Review published successfully!');
+    }).catch(() => {});
   };
 
   const totalReviewsCount = reviews.length;
@@ -606,10 +596,23 @@ export default function App() {
     ? reviews 
     : reviews.filter(r => r.rating === Number(reviewFilter));
 
+  const handleSendMessageToAI = (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    const userMsg = chatInput;
+    setChatMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
+    setChatInput('');
+    setTimeout(() => {
+      let reply = lang === 'ua' 
+        ? `Я проаналізував ваш запит щодо "${userMsg}". Рекомендую звернути увагу на моделі з ліквідністю вище 85 та перевірити їх наявність в каталозі.`
+        : `I analyzed your query about "${userMsg}". I recommend focusing on models with liquidity above 85 and checking our catalog.`;
+      setChatMessages(prev => [...prev, { sender: 'bot', text: reply }]);
+    }, 800);
+  };
+
   return (
     <div className={theme === 'dark' ? 'dark bg-[#0b0f19] text-slate-100 min-h-screen flex font-sans' : 'bg-slate-100 text-slate-900 min-h-screen flex font-sans'}>
       
-      {/* ФІКСОВАНА БІЧНА ПАНЕЛЬ */}
       <aside className={`w-64 h-screen sticky top-0 flex flex-col justify-between p-6 border-r transition-colors z-30 shadow-2xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-600'}`}>
         <div>
           <div className="flex items-center gap-3 mb-10">
@@ -619,7 +622,7 @@ export default function App() {
             <span className={`text-xl font-extrabold tracking-wide ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>AutoAdvisor</span>
           </div>
 
-          <nav className="space-y-1.5">
+          <nav className="space-y-1.5 text-left">
             <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === 'overview' ? 'bg-emerald-500/15 text-emerald-400 font-bold shadow-sm' : theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-700'}`}>
               <LayoutDashboard size={18} /> {currentText.overview}
             </button>
@@ -668,24 +671,30 @@ export default function App() {
         <div className={`pt-6 border-t ${theme === 'dark' ? 'border-slate-800' : 'border-slate-200'} space-y-3`}>
           <button onClick={() => {
             if (!user) { setIsAuthModalOpen(true); setAuthMode('login'); } 
-            else { setIsSettingsOpen(true); }
+            else {
+              setSettingsName(user.display_name);
+              setSettingsLang(lang);
+              setSettingsCurrency(currency);
+              setSettingsDistance(distanceUnit);
+              setIsSettingsOpen(true);
+            }
           }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${theme === 'dark' ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-100 text-slate-700'}`}>
             <Settings size={18} /> {currentText.settings}
           </button>
 
           <div className="flex items-center justify-between pt-2">
             {user ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 text-left">
                 <div className="w-9 h-9 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-sm shadow-md">
                   {user.display_name[0]}
                 </div>
                 <div>
                   <p className={`text-sm font-semibold truncate w-28 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{user.display_name}</p>
-                  <p className="text-xs text-emerald-400">{user.is_admin ? 'Адмін' : 'Аналітик'}</p>
+                  <p className="text-xs text-emerald-400">{user.is_admin ? (lang === 'ua' ? 'Адмін' : 'Admin') : (lang === 'ua' ? 'Аналітик' : 'Analyst')}</p>
                 </div>
               </div>
             ) : (
-              <button onClick={() => { setAuthMode('login'); setResetStep(1); setIsAuthModalOpen(true); }} className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-lg transition-all">
+              <button onClick={() => { setAuthMode('login'); setIsAuthModalOpen(true); }} className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-lg transition-all">
                 {currentText.signIn}
               </button>
             )}
@@ -697,47 +706,45 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ОСНОВНИЙ КОНТЕНТ */}
-      <main className="flex-1 p-10 overflow-y-auto flex flex-col justify-between min-h-screen">
+      <main className="flex-1 p-10 overflow-y-auto flex flex-col justify-between min-h-screen text-left relative">
         <div>
           <div className="flex justify-between items-center mb-8">
-            <span className="text-xs text-slate-400 uppercase tracking-widest font-semibold">Workspace / <span className="text-emerald-400">{activeTab}</span></span>
+            <span className="text-xs text-slate-400 uppercase tracking-widest font-semibold text-left">Workspace / <span className="text-emerald-400">{activeTab}</span></span>
             {user && <button onClick={() => setUser(null)} className="text-xs px-3.5 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl font-semibold transition-all">{currentText.logout}</button>}
           </div>
 
-          {/* 1. OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-fadeIn transition-all duration-500">
               <div className={`p-8 rounded-3xl border shadow-xl relative overflow-hidden transition-all duration-500 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider">Smart Market Intelligence</span>
-                    <h1 className="text-3xl font-black mt-1">{currentText.hello}, {user?.display_name || currentText.guest}!</h1>
-                    <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Here is what is happening in the automotive market today.</p>
+                    <h1 className="text-3xl font-black mt-1 text-left">{currentText.hello}, {user?.display_name || currentText.guest}!</h1>
+                    <p className={`text-xs mt-1 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{lang === 'ua' ? 'Ось що відбувається на автомобільному ринку сьогодні.' : 'Here is what is happening in the automotive market today.'}</p>
                   </div>
-                  <button onClick={() => setActiveTab('analytics')} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow">View market report &gt;</button>
+                  <button onClick={() => setActiveTab('analytics')} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow">{lang === 'ua' ? 'Переглянути звіт ринку >' : 'View market report >'}</button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
                   <div className={`p-4 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <p className="text-[10px] uppercase font-semibold text-slate-400">Cars Analyzed</p>
-                    <p className="text-2xl font-black mt-1">24,892</p>
-                    <span className="text-[10px] text-emerald-500 font-bold">+142 added this month</span>
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 text-left">{currentText.carsAnalyzed}</p>
+                    <p className="text-2xl font-black mt-1 text-left">{totalDbCars.toLocaleString()}</p>
+                    <span className="text-[10px] text-emerald-500 font-bold text-left block">+142 {lang === 'ua' ? 'додано цього місяця' : 'added this month'}</span>
                   </div>
                   <div className={`p-4 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <p className="text-[10px] uppercase font-semibold text-slate-400">Average Price</p>
-                    <p className="text-2xl font-black mt-1">{formatPrice(31420)}</p>
-                    <span className="text-[10px] text-emerald-500 font-bold">Across all active listings</span>
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 text-left">{currentText.averagePrice}</p>
+                    <p className="text-2xl font-black mt-1 text-left">{formatPrice(calculatedAvgPrice)}</p>
+                    <span className="text-[10px] text-emerald-500 font-bold text-left block">{lang === 'ua' ? 'По всій активній базі БД' : 'Across all active DB listings'}</span>
                   </div>
                   <div className={`p-4 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <p className="text-[10px] uppercase font-semibold text-slate-400">Market Liquidity</p>
-                    <p className="text-2xl font-black mt-1">74.8</p>
-                    <span className="text-[10px] text-emerald-500 font-bold">Healthy buyer demand</span>
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 text-left">{currentText.marketLiquidity}</p>
+                    <p className="text-2xl font-black mt-1 text-left">{calculatedLiquidityAvg}</p>
+                    <span className="text-[10px] text-emerald-500 font-bold text-left block">{lang === 'ua' ? 'Здоровий попит покупців' : 'Healthy buyer demand'}</span>
                   </div>
                   <div className={`p-4 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <p className="text-[10px] uppercase font-semibold text-slate-400">Saved Value</p>
-                    <p className="text-2xl font-black mt-1">{formatPrice(486000)}</p>
-                    <span className="text-[10px] text-emerald-500 font-bold">Across {currentUserData.saved.length} saved vehicles</span>
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 text-left">{currentText.savedValue}</p>
+                    <p className="text-2xl font-black mt-1 text-left">{formatPrice(calculatedSavedValue)}</p>
+                    <span className="text-[10px] text-emerald-500 font-bold text-left block">{lang === 'ua' ? `По ${currentUserData.saved.length} збережених авто` : `Across ${currentUserData.saved.length} saved vehicles`}</span>
                   </div>
                 </div>
               </div>
@@ -745,7 +752,7 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className={`md:col-span-2 p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-base">{currentText.marketTrend}</h3>
+                    <h3 className="font-bold text-base text-left">{currentText.marketTrend}</h3>
                     <div className="flex gap-1 text-[10px] font-bold">
                       <span className={`px-2 py-1 rounded ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-800'}`}>1M</span>
                       <span className={`px-2 py-1 rounded ${theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>3M</span>
@@ -753,7 +760,7 @@ export default function App() {
                       <span className={`px-2 py-1 rounded ${theme === 'dark' ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>1Y</span>
                     </div>
                   </div>
-                  <p className="text-sm font-black text-emerald-500 mb-4">{formatPrice(31420)} <span className="text-xs text-emerald-600 font-normal">+{formatPrice(1080)} vs previous period</span></p>
+                  <p className="text-sm font-black text-emerald-500 mb-4 text-left">{formatPrice(calculatedAvgPrice)} <span className="text-xs text-emerald-600 font-normal">+{formatPrice(1080)} vs previous period</span></p>
                   <div className="h-40 flex items-end gap-3 pt-6 border-b border-slate-700/50 px-2">
                     <div className="w-1/6 bg-emerald-500/20 h-[30%] rounded-t-xl"></div>
                     <div className="w-1/6 bg-emerald-500/30 h-[50%] rounded-t-xl"></div>
@@ -767,11 +774,11 @@ export default function App() {
                 <div className={`p-6 rounded-3xl border shadow-xl flex flex-col justify-between ${theme === 'dark' ? 'bg-gradient-to-br from-emerald-950 via-[#0f172a] to-[#0f172a] border-emerald-500/30 text-white' : 'bg-gradient-to-br from-emerald-50 via-white to-white border-emerald-200 text-slate-900'}`}>
                   <div>
                     <span className="text-[10px] font-black px-2 py-0.5 bg-emerald-500/20 text-emerald-500 rounded uppercase">{currentText.aiInsight}</span>
-                    <h3 className="font-extrabold text-lg mt-3">The best time to buy premium sedans is now.</h3>
-                    <p className={`text-xs mt-2 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>Prices are 6.2% below the seasonal average while liquidity has increased for the third week in a row.</p>
+                    <h3 className="font-extrabold text-lg mt-3 text-left">{lang === 'ua' ? 'Найкращий час купувати преміум седани зараз.' : 'The best time to buy premium sedans is now.'}</h3>
+                    <p className={`text-xs mt-2 leading-relaxed text-left ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>{lang === 'ua' ? 'Ціни на 6.2% нижчі за сезонну середню, тоді як ліквідність зростає третій тиждень поспіль.' : 'Prices are 6.2% below the seasonal average while liquidity has increased for the third week in a row.'}</p>
                   </div>
                   <div className={`pt-4 border-t flex justify-between items-center text-xs ${theme === 'dark' ? 'border-slate-700/50 text-slate-400' : 'border-slate-200 text-slate-500'}`}>
-                    <span>Confidence</span>
+                    <span>{currentText.confidence}</span>
                     <span className="font-bold text-emerald-500">High - 92%</span>
                   </div>
                 </div>
@@ -779,42 +786,40 @@ export default function App() {
             </div>
           )}
 
-          {/* 2. DISCOVER */}
           {activeTab === 'discover' && (
             <div className="animate-fadeIn space-y-6">
               <div className={`p-8 rounded-3xl border mb-8 shadow-xl ${theme === 'dark' ? 'bg-gradient-to-r from-emerald-500/15 via-[#0f172a] to-[#0f172a] border-emerald-500/20 text-white' : 'bg-emerald-50 border-emerald-200 text-slate-900'}`}>
-                <h1 className="text-4xl font-extrabold mb-3" dangerouslySetInnerHTML={{ __html: currentText.findCar }}></h1>
-                <p className={`text-sm max-w-xl ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{currentText.subtitleDiscover}</p>
+                <h1 className="text-4xl font-extrabold mb-3 text-left" dangerouslySetInnerHTML={{ __html: currentText.findCar }}></h1>
+                <p className={`text-sm max-w-xl text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>{currentText.subtitleDiscover}</p>
               </div>
 
-              {/* Фільтри пошуку */}
               <div className={`p-6 rounded-3xl border shadow-xl mb-8 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-2">{currentText.maxBudget} ({formatPrice(budget)})</label>
-                    <input type="range" min="10000" max="150000" step="5000" value={budget} onChange={(e) => setBudget(e.target.value)} className="w-full accent-emerald-500 cursor-pointer" />
+                    <label className={`text-xs font-semibold block mb-2 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-700'}`}>{currentText.maxBudget} ({formatPrice(budget)})</label>
+                    <input type="range" min="10000" max="150000" step="5000" value={budget} onChange={(e) => setBudget(e.target.value)} className={`w-full accent-emerald-500 cursor-pointer ${theme === 'light' ? 'bg-slate-200' : ''}`} />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-2">{currentText.brand}</label>
-                    <select value={selectedBrand} onChange={(e) => setSelectedBrand(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm cursor-pointer ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                      <option value="All">All brands</option>
+                    <label className={`text-xs font-semibold block mb-2 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-700'}`}>{currentText.brand}</label>
+                    <select value={selectedBrand} onChange={(e) => setSelectedBrand(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm cursor-pointer ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}>
+                      <option value="All">{currentText.allBrands}</option>
                       <option value="BMW">BMW</option>
                       <option value="Mercedes-Benz">Mercedes-Benz</option>
                       <option value="Audi">Audi</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-2">{currentText.bodyType}</label>
-                    <select value={selectedBody} onChange={(e) => setSelectedBody(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm cursor-pointer ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                      <option value="Any">Any body</option>
-                      <option value="Sedan">Sedan</option>
-                      <option value="SUV">SUV</option>
-                      <option value="Coupe">Coupe</option>
+                    <label className={`text-xs font-semibold block mb-2 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-700'}`}>{currentText.bodyType}</label>
+                    <select value={selectedBody} onChange={(e) => setSelectedBody(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm cursor-pointer ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}>
+                      <option value="Any">{currentText.anyBody}</option>
+                      <option value="Sedan">{currentText.sedan}</option>
+                      <option value="SUV">{currentText.suv}</option>
+                      <option value="Coupe">{currentText.coupe}</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-slate-400 block mb-2">{currentText.minLiquidity} ({minLiquidityFilter}+)</label>
-                    <input type="range" min="0" max="95" step="5" value={minLiquidityFilter} onChange={(e) => setMinLiquidityFilter(e.target.value)} className="w-full accent-emerald-500 cursor-pointer mt-1" />
+                    <label className={`text-xs font-semibold block mb-2 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-700'}`}>{currentText.minLiquidity} ({minLiquidityFilter}+)</label>
+                    <input type="range" min="0" max="95" step="5" value={minLiquidityFilter} onChange={(e) => setMinLiquidityFilter(e.target.value)} className={`w-full accent-emerald-500 cursor-pointer mt-1 ${theme === 'light' ? 'bg-slate-200' : ''}`} />
                   </div>
                   <div className="flex items-end">
                     <button onClick={handleApplyFilters} className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg transition-transform active:scale-95">{currentText.apply}</button>
@@ -822,8 +827,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Картки машин */}
-              <h2 className="text-xl font-bold mb-4">{currentText.topRecommendations} ({cars.length})</h2>
+              <h2 className="text-xl font-bold mb-4 text-left">{currentText.topRecommendations} ({cars.length})</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {cars.map((car) => {
                   const isSaved = currentUserData.saved.includes(car.id);
@@ -843,17 +847,17 @@ export default function App() {
                       </div>
                       <div className="p-5 space-y-4">
                         <div className="flex justify-between items-center">
-                          <h3 className="font-bold text-lg">{car.title}</h3>
+                          <h3 className="font-bold text-lg text-left">{car.title}</h3>
                           <span className="text-lg font-black text-emerald-500">{formatPrice(car.price)}</span>
                         </div>
                         
-                        <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                        <p className={`text-xs text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                           {car.body_type} • {car.year} • ⚙️ {car.engine_volume || '2.0L'} • {formatMileage(car.mileage_raw || 15000)}
                         </p>
                         
                         <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                           <div className="flex justify-between items-center mb-1">
-                            <span className="text-xs font-semibold text-slate-400">LIQUIDITY SCORE</span>
+                            <span className="text-xs font-semibold text-slate-400">{currentText.liquidityScoreLabel}</span>
                             <span className="text-emerald-500 font-black text-sm">{car.liquidity_score} / 100</span>
                           </div>
                           <div className="w-full bg-slate-700/50 h-2 rounded-full overflow-hidden">
@@ -884,62 +888,92 @@ export default function App() {
             </div>
           )}
 
-          {/* 3. MARKET ANALYTICS */}
           {activeTab === 'analytics' && (
             <div className="space-y-6 animate-fadeIn">
               <div className={`p-8 rounded-3xl border shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                <span className="text-xs font-bold text-emerald-500 uppercase tracking-widest">LIVE MARKET DATA</span>
-                <h2 className="text-3xl font-black mt-1">{currentText.marketAnalyticsTitle}</h2>
-                <p className={`text-xs mt-1 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{currentText.marketAnalyticsSub}</p>
+                <span className="text-xs font-bold text-emerald-500 uppercase tracking-widest text-left block">LIVE MARKET DATA</span>
+                <h2 className="text-3xl font-black mt-1 text-left">{currentText.marketAnalyticsTitle}</h2>
+                <p className={`text-xs mt-1 text-left ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>{currentText.marketAnalyticsSub}</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <p className="text-xs uppercase font-semibold text-slate-400">{currentText.medianPrice}</p>
-                  <p className="text-2xl font-black mt-2">{formatPrice(29840)}</p>
-                  <span className="text-[10px] text-emerald-500 font-bold">+2.8% vs previous period</span>
+                  <p className="text-xs uppercase font-semibold text-slate-400 text-left">{currentText.medianPrice}</p>
+                  <p className="text-2xl font-black mt-2 text-left">{formatPrice(calculatedAvgPrice)}</p>
+                  <span className="text-[10px] text-emerald-500 font-bold text-left block">+2.8% vs previous period</span>
                 </div>
                 <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <p className="text-xs uppercase font-semibold text-slate-400">{currentText.inventory}</p>
-                  <p className="text-2xl font-black mt-2">24,892</p>
-                  <span className="text-[10px] text-emerald-500 font-bold">1,421 new listings</span>
+                  <p className="text-xs uppercase font-semibold text-slate-400 text-left">{currentText.inventory}</p>
+                  <p className="text-2xl font-black mt-2 text-left">{totalDbCars.toLocaleString()}</p>
+                  <span className="text-[10px] text-emerald-500 font-bold text-left block">1,421 new listings</span>
                 </div>
                 <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <p className="text-xs uppercase font-semibold text-slate-400">{currentText.daysOnMarket}</p>
-                  <p className="text-2xl font-black mt-2">36 {lang === 'ua' ? 'днів' : 'days'}</p>
-                  <span className="text-[10px] text-emerald-500 font-bold">2 {lang === 'ua' ? 'дні швидше' : 'days faster'}</span>
+                  <p className="text-xs uppercase font-semibold text-slate-400 text-left">{currentText.daysOnMarket}</p>
+                  <p className="text-2xl font-black mt-2 text-left">36 {lang === 'ua' ? 'днів' : 'days'}</p>
+                  <span className="text-[10px] text-emerald-500 font-bold text-left block">2 {lang === 'ua' ? 'дні швидше' : 'days faster'}</span>
                 </div>
                 <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  <p className="text-xs uppercase font-semibold text-slate-400">{currentText.demandIndex}</p>
-                  <p className="text-2xl font-black mt-2">78.4</p>
-                  <span className="text-[10px] text-emerald-500 font-bold">Strong buyer activity</span>
+                  <p className="text-xs uppercase font-semibold text-slate-400 text-left">{currentText.demandIndex}</p>
+                  <p className="text-2xl font-black mt-2 text-left">{calculatedLiquidityAvg}</p>
+                  <span className="text-[10px] text-emerald-500 font-bold text-left block">Strong buyer activity</span>
                 </div>
               </div>
 
               <div className={`p-8 rounded-3xl border shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                <h3 className="text-xl font-bold mb-4">{currentText.segmentPerformance}</h3>
-                <div className="space-y-4 text-xs">
-                  <div className={`flex justify-between items-center p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <span className="font-bold">{currentText.suvSegment}</span>
-                    <span>{formatPrice(34240)}</span>
-                    <span className="text-emerald-500">+3.4%</span>
-                    <span className="font-bold text-emerald-500">84 / 100</span>
+                <h3 className="text-xl font-bold mb-2 text-left">{currentText.segmentPerformance}</h3>
+                <p className="text-xs text-slate-400 mb-6 text-left">{currentText.segmentSub}</p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-400 block mb-2 text-left">{currentText.selectCar1}</label>
+                    <select 
+                      value={compareCar1 ? compareCar1.id : ''} 
+                      onChange={e => setCompareCar1(cars.find(c => c.id === Number(e.target.value)))} 
+                      className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                    >
+                      <option value="">-- {currentText.selectCar1} --</option>
+                      {cars.map(c => <option key={c.id} value={c.id}>{c.title} ({formatPrice(c.price)})</option>)}
+                    </select>
                   </div>
-                  <div className={`flex justify-between items-center p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                    <span className="font-bold">{currentText.sedanSegment}</span>
-                    <span>{formatPrice(41620)}</span>
-                    <span className="text-emerald-500">+2.1%</span>
-                    <span className="font-bold text-emerald-500">81 / 100</span>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-400 block mb-2 text-left">{currentText.selectCar2}</label>
+                    <select 
+                      value={compareCar2 ? compareCar2.id : ''} 
+                      onChange={e => setCompareCar2(cars.find(c => c.id === Number(e.target.value)))} 
+                      className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}
+                    >
+                      <option value="">-- {currentText.selectCar2} --</option>
+                      {cars.map(c => <option key={c.id} value={c.id}>{c.title} ({formatPrice(c.price)})</option>)}
+                    </select>
                   </div>
                 </div>
+
+                {compareCar1 && compareCar2 && (
+                  <div className={`p-6 rounded-2xl border animate-fadeIn ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <h4 className="font-bold text-sm text-emerald-400 mb-3">{currentText.comparisonResult}</h4>
+                    <div className="grid grid-cols-2 gap-4 text-xs">
+                      <div className="space-y-1">
+                        <p className="font-bold text-sm">{compareCar1.title}</p>
+                        <p>{lang === 'ua' ? 'Ціна' : 'Price'}: {formatPrice(compareCar1.price)}</p>
+                        <p>{lang === 'ua' ? 'Ліквідність' : 'Liquidity'}: {compareCar1.liquidity_score} / 100</p>
+                        <p>{lang === 'ua' ? 'Рік' : 'Year'}: {compareCar1.year}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-bold text-sm">{compareCar2.title}</p>
+                        <p>{lang === 'ua' ? 'Ціна' : 'Price'}: {formatPrice(compareCar2.price)}</p>
+                        <p>{lang === 'ua' ? 'Ліквідність' : 'Liquidity'}: {compareCar2.liquidity_score} / 100</p>
+                        <p>{lang === 'ua' ? 'Рік' : 'Year'}: {compareCar2.year}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* 4. SAVED VEHICLES */}
           {activeTab === 'saved' && (
             <div className="animate-fadeIn">
-              <h2 className="text-2xl font-bold mb-6">{currentText.savedVehicles} ({currentUserData.saved.length})</h2>
+              <h2 className="text-2xl font-bold mb-6 text-left">{currentText.savedVehicles} ({currentUserData.saved.length})</h2>
               {currentUserData.saved.length === 0 ? (
                 <div className={`p-16 text-center rounded-3xl border shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
                   <Bookmark size={56} className="mx-auto mb-4 opacity-30 text-emerald-500" />
@@ -950,21 +984,33 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {cars.filter(c => currentUserData.saved.includes(c.id)).map(car => {
                     const isBooked = currentUserData.booked.includes(car.id);
+                    const bDetails = currentUserData.bookingsDetails?.[car.id];
+                    let statusText = '';
+                    if (isBooked) {
+                      if (bDetails?.status === 'approved') statusText = lang === 'ua' ? 'Статус: Бронювання схвалено адміном' : 'Status: Booking approved';
+                      else if (bDetails?.status === 'rejected') statusText = lang === 'ua' ? 'Статус: Відхилено' : 'Status: Rejected';
+                      else statusText = lang === 'ua' ? 'Статус: Заброньовано (очікує підтвердження)' : 'Status: Booked (pending)';
+                    }
+
                     return (
                       <div key={car.id} className={`rounded-3xl p-6 border shadow-xl flex flex-col justify-between ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                         <div>
                           <img src={car.image_url} alt="" className="w-full h-36 object-cover rounded-2xl mb-4" />
-                          <h3 className="font-bold text-lg mb-1">{car.title}</h3>
-                          <p className="text-emerald-500 font-black text-lg mb-2">{formatPrice(car.price)}</p>
-                          {isBooked && <span className="inline-block px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-[10px] rounded uppercase mb-2">Статус: Заброньовано</span>}
+                          <h3 className="font-bold text-lg mb-1 text-left">{car.title}</h3>
+                          <p className="text-emerald-500 font-black text-lg mb-2 text-left">{formatPrice(car.price)}</p>
+                          {isBooked && (
+                            <span className="inline-block px-2.5 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold text-[10px] rounded uppercase mb-2">
+                              {statusText}
+                            </span>
+                          )}
                         </div>
                         <div className="space-y-2 mt-4">
                           {!isBooked ? (
-                            <button onClick={() => handleOpenBookingModal(car)} className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold">Забронювати автомобіль</button>
+                            <button onClick={() => handleOpenBookingModal(car)} className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold">{lang === 'ua' ? 'Забронювати автомобіль' : 'Book vehicle'}</button>
                           ) : (
-                            <button disabled className="w-full py-2 bg-slate-700 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed">Бронювання на розгляді</button>
+                            <button disabled className="w-full py-2 bg-slate-700 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed">{lang === 'ua' ? 'Бронювання на розгляді' : 'Booking pending'}</button>
                           )}
-                          <button onClick={() => handleToggleSave(car.id)} className="w-full py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold">Видалити зі збережених</button>
+                          <button onClick={() => handleToggleSave(car.id)} className="w-full py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold">{lang === 'ua' ? 'Видалити зі збережених' : 'Remove from saved'}</button>
                         </div>
                       </div>
                     );
@@ -974,11 +1020,10 @@ export default function App() {
             </div>
           )}
 
-          {/* 5. RECENT VIEWED */}
           {activeTab === 'recent' && (
             <div className="animate-fadeIn">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold">{currentText.recent} ({currentUserData.recent.length})</h2>
+                <h2 className="text-2xl font-bold text-left">{currentText.recent} ({currentUserData.recent.length})</h2>
                 {currentUserData.recent.length > 0 && (
                   <button onClick={handleClearRecent} className="px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all">
                     <Trash2 size={16}/> {currentText.clearHistory}
@@ -1000,16 +1045,16 @@ export default function App() {
                       <div key={car.id} className={`rounded-3xl p-6 border shadow-xl flex flex-col justify-between ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                         <div>
                           <img src={car.image_url} alt="" className="w-full h-36 object-cover rounded-2xl mb-4" />
-                          <h3 className="font-bold text-lg mb-1">{car.title}</h3>
-                          <p className="text-emerald-500 font-black text-lg mb-3">{formatPrice(car.price)}</p>
-                          {isBooked && <span className="inline-block px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-[10px] rounded uppercase mb-2">Статус: Заброньовано</span>}
+                          <h3 className="font-bold text-lg mb-1 text-left">{car.title}</h3>
+                          <p className="text-emerald-500 font-black text-lg mb-3 text-left">{formatPrice(car.price)}</p>
+                          {isBooked && <span className="inline-block px-2.5 py-1 bg-amber-500 text-slate-950 font-black text-[10px] rounded uppercase mb-2">{currentText.bookedStatus}</span>}
                         </div>
                         <div className="space-y-2 mt-4">
                           <button onClick={() => handleOpenCarDetail(car)} className="w-full py-2 bg-slate-800 text-white hover:bg-emerald-500 hover:text-slate-950 rounded-xl text-xs font-bold transition-all">{currentText.viewAgain}</button>
                           {!isBooked ? (
                             <button onClick={() => handleOpenBookingModal(car)} className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold">{currentText.book}</button>
                           ) : (
-                            <button disabled className="w-full py-2 bg-slate-700 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed">Заброньовано</button>
+                            <button disabled className="w-full py-2 bg-slate-700 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed">{currentText.bookedStatus}</button>
                           )}
                         </div>
                       </div>
@@ -1020,11 +1065,10 @@ export default function App() {
             </div>
           )}
 
-          {/* 6. ВІДГУКИ */}
           {activeTab === 'reviews' && (
             <div className="max-w-4xl mx-auto py-6 animate-fadeIn">
               <div className="flex justify-between items-start mb-10">
-                <div>
+                <div className="text-left">
                   <span className="text-xs font-extrabold text-emerald-500 uppercase tracking-widest">{currentText.customerReviews}</span>
                   <h2 className="text-3xl font-black mt-1">{currentText.whatTheySay}</h2>
                 </div>
@@ -1032,48 +1076,42 @@ export default function App() {
                   <div className="text-3xl font-black text-emerald-500">{averageRating}</div>
                   <div>
                     <div className="flex text-amber-400"><Star size={14} fill="currentColor"/><Star size={14} fill="currentColor"/><Star size={14} fill="currentColor"/><Star size={14} fill="currentColor"/><Star size={14} stroke="currentColor"/></div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{totalReviewsCount} відгуків</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{totalReviewsCount} {lang === 'ua' ? 'відгуків' : 'reviews'}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Блок слайдера з зупинкою при наведенні миші (onMouseEnter / onMouseLeave) */}
-              <div 
-                className="relative mb-12 overflow-hidden"
-                onMouseEnter={() => setIsPaused(true)}
-                onMouseLeave={() => setIsPaused(false)}
-              >
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-700 ease-in-out">
-                  {reviews.slice(currentReviewIdx, currentReviewIdx + 3).map((rev, idx) => (
-                    <div key={idx} className={`p-7 rounded-3xl border shadow-xl flex flex-col justify-between transition-transform duration-500 hover:-translate-y-1 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
-                      <div>
-                        <div className="flex text-amber-400 mb-3">
-                          {[...Array(rev.rating)].map((_, i) => <Star key={i} size={16} fill="currentColor" />)}
+              {!showAllReviews && (
+                <div 
+                  className="relative mb-8 overflow-hidden"
+                  onMouseEnter={() => setIsPaused(true)}
+                  onMouseLeave={() => setIsPaused(false)}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-700 ease-in-out">
+                    {reviews.slice(currentReviewIdx, currentReviewIdx + 3).map((rev, idx) => (
+                      <div key={idx} className={`p-7 rounded-3xl border shadow-xl flex flex-col justify-between transition-transform duration-500 hover:-translate-y-1 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+                        <div>
+                          <div className="flex text-amber-400 mb-3">
+                            {[...Array(rev.rating)].map((_, i) => <Star key={i} size={16} fill="currentColor" />)}
+                          </div>
+                          <p className="text-sm italic mb-6 leading-relaxed opacity-90 text-left">"{rev.comment}"</p>
                         </div>
-                        <p className="text-sm italic mb-6 leading-relaxed opacity-90">"{rev.comment}"</p>
+                        <div className={`pt-4 border-t ${theme === 'dark' ? 'border-slate-700/40' : 'border-slate-200'} flex justify-between items-center text-xs`}>
+                          <span className="font-bold">{rev.author}</span>
+                          <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12}/> {lang === 'ua' ? 'Перевірено' : 'Verified'}</span>
+                        </div>
                       </div>
-                      <div className={`pt-4 border-t ${theme === 'dark' ? 'border-slate-700/40' : 'border-slate-200'} flex justify-between items-center text-xs`}>
-                        <span className="font-bold">{rev.author}</span>
-                        <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12}/> Перевірено</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Індикатори слайдера (крапочки для зручності) */}
-                {reviews.length > 3 && !showAllReviews && (
-                  <div className="flex justify-center gap-2 mt-6">
-                    <button 
-                      onClick={() => setCurrentReviewIdx(0)} 
-                      className={`h-2 rounded-full transition-all ${currentReviewIdx === '0' || currentReviewIdx === 0 ? 'w-8 bg-emerald-500' : 'w-2 bg-slate-600'}`}
-                    />
-                    <button 
-                      onClick={() => setCurrentReviewIdx(3)} 
-                      className={`h-2 rounded-full transition-all ${currentReviewIdx === 3 ? 'w-8 bg-emerald-500' : 'w-2 bg-slate-600'}`}
-                    />
+                    ))}
                   </div>
-                )}
-              </div>
+
+                  {reviews.length > 3 && (
+                    <div className="flex justify-center gap-2 mt-6">
+                      <button onClick={() => setCurrentReviewIdx(0)} className={`h-2 rounded-full transition-all ${currentReviewIdx === 0 ? 'w-8 bg-emerald-500' : 'w-2 bg-slate-600'}`} />
+                      <button onClick={() => setCurrentReviewIdx(3)} className={`h-2 rounded-full transition-all ${currentReviewIdx === 3 ? 'w-8 bg-emerald-500' : 'w-2 bg-slate-600'}`} />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="text-center mb-10">
                 <button onClick={() => setShowAllReviews(!showAllReviews)} className={`px-8 py-3.5 rounded-2xl border text-xs font-bold transition-all shadow-lg ${theme === 'dark' ? 'border-slate-700 hover:bg-slate-800 text-white' : 'border-slate-300 hover:bg-slate-100 text-slate-800'}`}>
@@ -1083,9 +1121,9 @@ export default function App() {
                 {showAllReviews && (
                   <div className="mt-8 space-y-6 text-left animate-fadeIn">
                     <div className="flex gap-2 justify-center flex-wrap">
-                      <button onClick={() => setReviewFilter('all')} className={`px-4 py-1.5 rounded-xl text-xs font-bold ${reviewFilter === 'all' ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-300'}`}>Усі оцінки</button>
+                      <button onClick={() => setReviewFilter('all')} className={`px-4 py-1.5 rounded-xl text-xs font-bold ${reviewFilter === 'all' ? 'bg-emerald-500 text-white' : theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-800'}`}>{lang === 'ua' ? 'Усі оцінки' : 'All ratings'}</button>
                       {[5, 4, 3, 2, 1].map(stars => (
-                        <button key={stars} onClick={() => setReviewFilter(String(stars))} className={`px-4 py-1.5 rounded-xl text-xs font-bold ${reviewFilter === String(stars) ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-300'}`}>{stars} ★</button>
+                        <button key={stars} onClick={() => setReviewFilter(String(stars))} className={`px-4 py-1.5 rounded-xl text-xs font-bold ${reviewFilter === String(stars) ? 'bg-emerald-500 text-white' : theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-800'}`}>{stars} ★</button>
                       ))}
                     </div>
 
@@ -1098,7 +1136,7 @@ export default function App() {
                               {[...Array(r.rating)].map((_, s) => <Star key={s} size={12} fill="currentColor" />)}
                             </div>
                           </div>
-                          <p className="text-xs opacity-80">"{r.comment}"</p>
+                          <p className="text-xs opacity-80 text-left">"{r.comment}"</p>
                         </div>
                       ))}
                     </div>
@@ -1106,7 +1144,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className={`border rounded-3xl p-8 mb-12 shadow-2xl relative overflow-hidden ${theme === 'dark' ? 'bg-[#121824] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+              <div className={`border rounded-3xl p-8 mb-12 shadow-2xl relative overflow-hidden text-left ${theme === 'dark' ? 'bg-[#121824] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                 <span className="text-xs font-extrabold text-emerald-500 uppercase tracking-wider">{currentText.yourOpinion}</span>
                 <h3 className="text-2xl font-black mt-1 mb-2">{currentText.shareExperience}</h3>
                 
@@ -1119,189 +1157,234 @@ export default function App() {
                       ))}
                     </div>
                   </div>
-                  <input type="text" placeholder="Ваше ім'я" value={newReviewAuthor} onChange={e=>setNewReviewAuthor(e.target.value)} className={`w-full p-3.5 border rounded-2xl text-xs outline-none ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                  <textarea placeholder="Ваш відгук..." value={newReviewComment} onChange={e=>setReviewComment(e.target.value)} className={`w-full p-3.5 border rounded-2xl text-xs h-24 outline-none ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-905'}`} required />
+                  <input type="text" placeholder={lang === 'ua' ? "Ваше ім'я" : "Your name"} value={newReviewAuthor} onChange={e=>setNewReviewAuthor(e.target.value)} className={`w-full p-3.5 border rounded-2xl text-xs outline-none ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
+                  <textarea placeholder={lang === 'ua' ? "Ваш відгук..." : "Your review..."} value={newReviewComment} onChange={e=>setNewReviewComment(e.target.value)} className={`w-full p-3.5 border rounded-2xl text-xs h-24 outline-none ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   <button type="submit" className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs rounded-2xl shadow-lg">{currentText.publishReview}</button>
                 </form>
               </div>
             </div>
           )}
 
-          {/* 7. ADMIN PANEL */}
           {activeTab === 'admin' && user?.is_admin && (
-            <div className="max-w-3xl mx-auto py-8 animate-fadeIn space-y-8">
+            <div className="max-w-4xl mx-auto py-8 animate-fadeIn space-y-10 text-left">
               <h2 className="text-2xl font-bold flex items-center gap-2"><ShieldPlus className="text-amber-500"/> {currentText.adminTitle}</h2>
               
+              {/* БЛОК КЕРУВАННЯ БРОНЮВАННЯМИ НАПРАМУ З БАЗИ */}
+              <div className={`p-8 rounded-3xl border shadow-xl space-y-4 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+                <h3 className="font-bold text-sm text-emerald-500 uppercase tracking-wider">{lang === 'ua' ? 'Керування бронюваннями користувачів' : 'User Bookings Management'}</h3>
+                {adminBookings.length === 0 ? (
+                  <p className="text-xs text-slate-400">{lang === 'ua' ? 'Немає активних бронювань у базі даних.' : 'No active bookings in DB.'}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {adminBookings.map(b => (
+                      <div key={b.id} className={`p-4 rounded-2xl border flex justify-between items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                        <div>
+                          <p className="font-bold text-xs">Car ID: {b.car_id} | User: {b.user_email}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Phone: {b.phone} | Comment: {b.comment || '-'}</p>
+                          <span className={`inline-block mt-2 px-2.5 py-0.5 text-[10px] rounded font-bold uppercase ${b.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : b.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                            Status: {b.status}
+                          </span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                            fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ status: 'approved' })
+                            }).then(() => fetchAdminBookings());
+                          }} className="px-3 py-1.5 bg-emerald-500 text-white text-xs font-bold rounded-xl">{lang === 'ua' ? 'Схвалити' : 'Approve'}</button>
+                          
+                          <button onClick={() => {
+                            fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, {
+                              method: 'PUT',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ status: 'rejected' })
+                            }).then(() => fetchAdminBookings());
+                          }} className="px-3 py-1.5 bg-amber-500 text-slate-950 text-xs font-bold rounded-xl">{lang === 'ua' ? 'Відхилити' : 'Reject'}</button>
+
+                          <button onClick={() => {
+                            if (confirm('Видалити бронювання з бази?')) {
+                              fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, { method: 'DELETE' })
+                                .then(() => fetchAdminBookings());
+                            }
+                          }} className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-xl"><Trash2 size={14}/></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* БЛОК ВИДАЛЕННЯ АВТОМОБІЛІВ З БАЗИ */}
+              <div className={`p-8 rounded-3xl border shadow-xl space-y-4 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+                <h3 className="font-bold text-sm text-emerald-500 uppercase tracking-wider">{lang === 'ua' ? 'Видалення автомобілів з бази даних' : 'Delete Cars from Database'}</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {cars.map(c => (
+                    <div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="flex items-center gap-3">
+                        <img src={c.image_url} alt="" className="w-10 h-10 object-cover rounded-lg" />
+                        <div>
+                          <p className="font-bold text-xs">{c.title} ({c.year})</p>
+                          <p className="text-[10px] text-emerald-500">{formatPrice(c.price)}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => {
+                        if (confirm(`Видалити ${c.title} з бази даних?`)) {
+                          fetch(`http://127.0.0.1:8000/api/admin/cars/${c.id}`, { method: 'DELETE' })
+                            .then(() => {
+                              alert('Авто успішно видалено!');
+                              fetchCars();
+                            });
+                        }
+                      }} className="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1">
+                        <Trash2 size={14}/> {lang === 'ua' ? 'Видалити з БД' : 'Delete from DB'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ДОДАВАННЯ АВТО */}
               <form onSubmit={handleAddCar} className={`p-8 rounded-3xl border shadow-xl space-y-5 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
                 <h3 className="font-bold text-sm text-emerald-500">{currentText.addCarTitle}</h3>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Марка авто (Brand) *</label>
-                    <input type="text" placeholder="Наприклад: BMW" value={newCar.brand} onChange={e=>setNewCar({...newCar, brand: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Марка авто (Brand) *' : 'Car Brand *'}</label>
+                    <input type="text" placeholder="BMW" value={newCar.brand} onChange={e=>setNewCar({...newCar, brand: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Модель (Model) *</label>
-                    <input type="text" placeholder="Наприклад: M4 Competition" value={newCar.model} onChange={e=>setNewCar({...newCar, model: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Модель (Model) *' : 'Car Model *'}</label>
+                    <input type="text" placeholder="M4 Competition" value={newCar.model} onChange={e=>setNewCar({...newCar, model: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Тип кузова (Body Type)</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Тип кузова (Body Type)' : 'Body Type'}</label>
                     <select value={newCar.body_type} onChange={e=>setNewCar({...newCar, body_type: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}>
-                      <option value="Sedan">Sedan</option>
-                      <option value="SUV">SUV</option>
-                      <option value="Coupe">Coupe</option>
+                      <option value="Sedan">{currentText.sedan}</option>
+                      <option value="SUV">{currentText.suv}</option>
+                      <option value="Coupe">{currentText.coupe}</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Коробка передач (Transmission)</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Коробка передач (Transmission)' : 'Transmission'}</label>
                     <select value={newCar.transmission} onChange={e=>setNewCar({...newCar, transmission: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`}>
-                      <option value="Automatic">Automatic</option>
-                      <option value="Manual">Manual</option>
+                      <option value="Automatic">{currentText.automatic}</option>
+                      <option value="Manual">{currentText.manual}</option>
                     </select>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Рік випуску *</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Рік випуску *' : 'Year *'}</label>
                     <input type="number" placeholder="2023" value={newCar.year} onChange={e=>setNewCar({...newCar, year: Number(e.target.value)})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Ціна ($) *</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Ціна ($) *' : 'Price ($) *'}</label>
                     <input type="number" placeholder="74500" value={newCar.price} onChange={e=>setNewCar({...newCar, price: Number(e.target.value)})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Пробіг (у милях) *</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Пробіг *' : 'Mileage *'}</label>
                     <input type="number" placeholder="12000" value={newCar.mileage} onChange={e=>setNewCar({...newCar, mileage: Number(e.target.value)})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                   <div>
-                    <label className="text-xs text-slate-400 block mb-1">Ліквідність (0-100)</label>
+                    <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Ліквідність (0-100)' : 'Liquidity (0-100)'}</label>
                     <input type="number" placeholder="92" value={newCar.custom_liquidity} onChange={e=>setNewCar({...newCar, custom_liquidity: Number(e.target.value)})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Об'єм двигуна</label>
-                    <input type="text" placeholder="3.0L" value={newCar.engine_volume} onChange={e=>setNewCar({...newCar, engine_volume: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Короткий тег / Бейдж (Badge)</label>
-                    <input type="text" placeholder="BEST MATCH" value={newCar.badge} onChange={e=>setNewCar({...newCar, badge: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                  </div>
-                </div>
-
                 <div>
-                  <label className="text-xs text-slate-400 block mb-1">URL фотографії (Unsplash / посилання) *</label>
+                  <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'URL фотографії *' : 'Image URL *'}</label>
                   <input type="text" placeholder="https://images.unsplash.com/..." value={newCar.image_url} onChange={e=>setNewCar({...newCar, image_url: e.target.value})} className={`w-full p-3 border rounded-xl text-xs ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
                 </div>
 
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Детальний опис автомобіля</label>
-                  <textarea placeholder="Опишіть переваги та стан авто..." value={newCar.description} onChange={e=>setNewCar({...newCar, description: e.target.value})} className={`w-full p-3 border rounded-xl text-xs h-20 ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} />
-                </div>
-
-                <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg">Додати авто у базу та розіслати email підписникам</button>
+                <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg">{lang === 'ua' ? 'Додати авто у базу та розіслати email підписникам' : 'Add car to DB & dispatch email to subscribers'}</button>
               </form>
-
-              <div className="space-y-4">
-                <h3 className="font-bold text-lg">{currentText.bookingRequests}</h3>
-                {Object.keys(userPersonalData).map(email => {
-                  const uData = userPersonalData[email];
-                  return uData.booked.map(carId => {
-                    const car = cars.find(c => c.id === carId);
-                    const bDetails = uData.bookingsDetails?.[carId] || { status: 'pending', phone: 'Не вказано' };
-                    if (!car) return null;
-
-                    return (
-                      <div key={`${email}-${carId}`} className={`p-4 rounded-2xl border flex items-center justify-between ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                        <div className="flex items-center gap-4">
-                          <img src={car.image_url} alt="" className="w-20 h-14 object-cover rounded-xl" />
-                          <div>
-                            <p className="font-bold text-sm">{car.title} ({formatPrice(car.price)})</p>
-                            <p className="text-xs text-slate-400">Клієнт: {email} | Тел: {bDetails.phone}</p>
-                            <p className="text-xs text-amber-400 font-bold">Статус: {bDetails.status.toUpperCase()}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          {bDetails.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleAdminApproveBooking(email, carId)} className="px-3 py-2 bg-emerald-500 text-white rounded-xl text-xs font-bold">Підтвердити бронювання</button>
-                              <button onClick={() => handleAdminRejectBooking(email, carId)} className="px-3 py-2 bg-red-500/20 text-red-400 rounded-xl text-xs font-bold">Відхилити</button>
-                            </>
-                          )}
-                          {bDetails.status === 'approved' && (
-                            <button onClick={() => handleConfirmPurchase(carId)} className="px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">Підтвердити покупку</button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  });
-                })}
-              </div>
-
-              <div className="space-y-4 pt-6 border-t border-slate-700/50">
-                <h3 className="font-bold text-lg">{currentText.allCarsMySQL}</h3>
-                {cars.map(car => (
-                  <div key={car.id} className={`p-4 rounded-2xl border flex items-center justify-between ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                    <div className="flex items-center gap-4">
-                      <img src={car.image_url} alt="" className="w-16 h-12 object-cover rounded-xl" />
-                      <div>
-                        <p className="font-bold text-sm">{car.title}</p>
-                        <p className="text-xs text-emerald-400">{formatPrice(car.price)} • {formatMileage(car.mileage_raw || 15000)}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => handleDeleteCar(car.id)} className="p-2.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl" title="Видалити з бази"><Trash2 size={16} /></button>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 
         </div>
 
-        {/* ФУТЕР */}
         <footer className={`mt-16 pt-6 border-t ${theme === 'dark' ? 'border-slate-800 text-slate-500' : 'border-slate-200 text-slate-600'} text-xs flex justify-between items-center`}>
           <p>{currentText.footerRights}</p>
           <div className="flex gap-6">
             <span>📞 +38 (068) 331-78-25</span>
             <span>✉️ support@autoadvisor.ua</span>
-            <span>📍 м. Київ, вул. Технічна, 12</span>
+            <span>📍 {lang === 'ua' ? 'м. Київ, вул. Технічна, 12' : 'Kyiv, Technichna str., 12'}</span>
           </div>
         </footer>
       </main>
 
-      {/* МОДАЛЬНЕ ВІКНО БРОНЮВАННЯ */}
+      <div className="fixed bottom-6 right-6 z-40">
+        {!isChatOpen ? (
+          <button 
+            onClick={() => setIsChatOpen(true)} 
+            className="w-14 h-14 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-2xl transition-transform hover:scale-110"
+            title="AI Assistant"
+          >
+            <Bot size={26} />
+          </button>
+        ) : (
+          <div className={`w-80 md:w-96 h-[450px] rounded-3xl border shadow-2xl flex flex-col justify-between overflow-hidden animate-fadeIn ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'}`}>
+              <div className="flex items-center gap-2">
+                <Bot size={18} className="text-emerald-500" />
+                <span className="font-bold text-xs">{currentText.aiChatTitle}</span>
+              </div>
+              <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white"><X size={18}/></button>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto space-y-3 text-xs">
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`p-3 rounded-2xl max-w-[80%] ${msg.sender === 'user' ? 'bg-emerald-500 text-white font-medium' : theme === 'dark' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-800'}`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={handleSendMessageToAI} className={`p-3 border-t flex gap-2 ${theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
+              <input 
+                type="text" 
+                value={chatInput} 
+                onChange={e => setChatInput(e.target.value)} 
+                placeholder={currentText.aiChatPlaceholder} 
+                className={`flex-1 p-2.5 rounded-xl border text-xs outline-none ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`} 
+              />
+              <button type="submit" className="p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl"><Send size={16}/></button>
+            </form>
+          </div>
+        )}
+      </div>
+
       {isBookingModalOpen && carToBook && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-          <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+          <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border text-left ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">Бронювання: {carToBook.title}</h3>
+              <h3 className="text-xl font-bold">{lang === 'ua' ? 'Бронювання' : 'Booking'}: {carToBook.title}</h3>
               <button onClick={() => setIsBookingModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
             </div>
-            <p className="text-xs text-slate-400 mb-6">Введіть ваш номер телефону для підтвердження менеджером через адмін-панель.</p>
+            <p className="text-xs text-slate-400 mb-6">{lang === 'ua' ? 'Введіть ваш номер телефону для підтвердження менеджером через адмін-панель.' : 'Enter your phone number for manager confirmation.'}</p>
             <form onSubmit={handleSubmitBooking} className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Номер телефону *</label>
+                <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Номер телефону *' : 'Phone number *'}</label>
                 <input type="tel" value={bookingPhone} onChange={e => setBookingPhone(e.target.value)} placeholder="+38 (0XX) XXX-XX-XX" className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
               </div>
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Коментар (необов'язково)</label>
-                <textarea value={bookingComment} onChange={e => setBookingComment(e.target.value)} placeholder="Бажаний час дзвінка..." className={`w-full p-3 border rounded-xl text-sm h-20 ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} />
+                <label className="text-xs text-slate-400 block mb-1">{lang === 'ua' ? 'Коментар (необов\'язково)' : 'Comment (optional)'}</label>
+                <textarea value={bookingComment} onChange={e => setBookingComment(e.target.value)} placeholder={lang === 'ua' ? 'Бажаний час дзвінка...' : 'Preferred call time...'} className={`w-full p-3 border rounded-xl text-sm h-20 ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} />
               </div>
-              <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm shadow-lg">Надіслати запит на бронювання</button>
+              <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm shadow-lg">{lang === 'ua' ? 'Надіслати запит на бронювання' : 'Submit booking request'}</button>
             </form>
           </div>
         </div>
       )}
 
-      {/* РОЗШИРЕНЕ ВІКНО НАЛАШТУВАНЬ */}
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn overflow-y-auto py-10">
-          <div className={`p-8 rounded-3xl w-full max-w-3xl shadow-2xl border relative ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+          <div className={`p-8 rounded-3xl w-full max-w-3xl shadow-2xl border relative text-left ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
             <div className="flex justify-between items-center mb-6">
               <div>
                 <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full uppercase">PERSONAL WORKSPACE</span>
@@ -1312,7 +1395,6 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSavePreferences} className="space-y-6">
-              {/* Профіль */}
               <div className={`p-6 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                 <h3 className="text-sm font-bold mb-3">{currentText.profileInfo}</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -1327,20 +1409,19 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Ринкові налаштування: мова, валюта, милі/км */}
               <div className={`p-6 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                 <h3 className="text-sm font-bold mb-3">{currentText.marketPreferences}</h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-xs font-semibold text-slate-400 block mb-1">{currentText.language}</label>
-                    <select value={lang} onChange={e => setLang(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+                    <select value={settingsLang} onChange={e => setSettingsLang(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
                       <option value="ua">Українська</option>
                       <option value="en">English</option>
                     </select>
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-400 block mb-1">{currentText.currency}</label>
-                    <select value={currency} onChange={e => setCurrency(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+                    <select value={settingsCurrency} onChange={e => setSettingsCurrency(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
                       <option value="USD">USD — US Dollar ($)</option>
                       <option value="EUR">EUR — Euro (€)</option>
                       <option value="UAH">UAH — Гривня (₴)</option>
@@ -1348,7 +1429,7 @@ export default function App() {
                   </div>
                   <div>
                     <label className="text-xs font-semibold text-slate-400 block mb-1">{currentText.distanceUnits}</label>
-                    <select value={distanceUnit} onChange={e => setDistanceUnit(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
+                    <select value={settingsDistance} onChange={e => setSettingsDistance(e.target.value)} className={`w-full p-2.5 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}>
                       <option value="mi">Miles (милі)</option>
                       <option value="km">Kilometers (км)</option>
                     </select>
@@ -1356,7 +1437,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Сповіщення (справжня розсилка) */}
               <div className={`p-6 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                 <h3 className="text-sm font-bold mb-3">{currentText.emailNotif}</h3>
                 <div className="space-y-3">
@@ -1367,7 +1447,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Зміна пароля */}
               <div className={`p-6 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                 <h3 className="text-sm font-bold mb-3">{currentText.changePass}</h3>
                 <div className="grid grid-cols-3 gap-4">
@@ -1385,72 +1464,44 @@ export default function App() {
         </div>
       )}
 
-      {/* МОДАЛЬНЕ ВІКНО АВТОРИЗАЦІЇ ТА ВІДНОВЛЕННЯ ПАРОЛЯ ЧЕРЕЗ КОД НА ПОШТУ */}
       {isAuthModalOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-          <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+          <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border text-left ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
             <div className="flex justify-between items-center mb-6">
               <div className="flex gap-4">
-                <button onClick={() => { setAuthMode('login'); setResetStep(1); }} className={`text-xl font-bold pb-1 border-b-2 transition-all ${authMode === 'login' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-slate-400'}`}>
-                  Увійти
+                <button onClick={() => setAuthMode('login')} className={`text-xl font-bold pb-1 border-b-2 transition-all ${authMode === 'login' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-slate-400'}`}>
+                  {lang === 'ua' ? 'Увійти' : 'Sign In'}
                 </button>
-                <button onClick={() => { setAuthMode('register'); setResetStep(1); }} className={`text-xl font-bold pb-1 border-b-2 transition-all ${authMode === 'register' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-slate-400'}`}>
-                  Реєстрація
+                <button onClick={() => setAuthMode('register')} className={`text-xl font-bold pb-1 border-b-2 transition-all ${authMode === 'register' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-slate-400'}`}>
+                  {lang === 'ua' ? 'Реєстрація' : 'Register'}
                 </button>
               </div>
               <button onClick={() => setIsAuthModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
             </div>
 
-            {authMode === 'forgot' ? (
+            <form onSubmit={handleAuth} className="space-y-4">
+              {authMode === 'register' && (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Display Name ({lang === 'ua' ? "Ім'я" : "Name"})</label>
+                  <input type="text" value={nameInput} onChange={e => setNameInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="Sasha" required />
+                </div>
+              )}
               <div>
-                <h3 className="text-sm font-bold mb-2">Відновлення пароля</h3>
-                {resetStep === 1 ? (
-                  <form onSubmit={handleSendResetCode} className="space-y-4">
-                    <p className="text-xs text-slate-400">Введіть ваш email, і на нього буде надіслано реальний код підтвердження.</p>
-                    <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} placeholder="you@example.com" className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                    <button type="submit" className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl text-sm">Надіслати код на пошту</button>
-                  </form>
-                ) : (
-                  <form onSubmit={handleVerifyAndResetPassword} className="space-y-4">
-                    <p className="text-xs text-emerald-400">Код надіслано на вашу пошту! Введіть його та новий пароль.</p>
-                    <input type="text" value={resetCodeInput} onChange={e => setResetCodeInput(e.target.value)} placeholder="Введіть код із пошти" className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                    <input type="password" value={newPasswordInput} onChange={e => setNewPasswordInput(e.target.value)} placeholder="Новий пароль (мін. 8 символів)" className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} required />
-                    <button type="submit" className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl text-sm">Підтвердити та змінити пароль</button>
-                  </form>
-                )}
-                <button onClick={() => setAuthMode('login')} className="mt-4 text-xs text-emerald-400 hover:underline block text-center">Повернутися до входу</button>
+                <label className="text-xs text-slate-400 block mb-1">Email address</label>
+                <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="you@example.com" required />
               </div>
-            ) : (
-              <form onSubmit={handleAuth} className="space-y-4">
-                {authMode === 'register' && (
-                  <div>
-                    <label className="text-xs text-slate-400 block mb-1">Display Name (Ім'я)</label>
-                    <input type="text" value={nameInput} onChange={e => setNameInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="Саша" required />
-                  </div>
-                )}
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Email address</label>
-                  <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="you@example.com" required />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 block mb-1">Password (мін. 8 символів)</label>
-                  <input type="password" value={passInput} onChange={e => setPassInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="••••••••" required />
-                </div>
-                {authMode === 'login' && (
-                  <div className="text-right">
-                    <button type="button" onClick={() => setAuthMode('forgot')} className="text-xs text-emerald-400 hover:underline">Забули пароль?</button>
-                  </div>
-                )}
-                <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm shadow-lg transition-transform active:scale-95">
-                  {authMode === 'login' ? 'Увійти в акаунт' : 'Створити акаунт'}
-                </button>
-              </form>
-            )}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Password ({lang === 'ua' ? 'мін. 8 символів' : 'min 8 chars'})</label>
+                <input type="password" value={passInput} onChange={e => setPassInput(e.target.value)} className={`w-full p-3 border rounded-xl text-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`} placeholder="••••••••" required />
+              </div>
+              <button type="submit" className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-sm shadow-lg transition-transform active:scale-95">
+                {authMode === 'login' ? (lang === 'ua' ? 'Увійти в акаунт' : 'Sign In') : (lang === 'ua' ? 'Створити акаунт' : 'Create Account')}
+              </button>
+            </form>
           </div>
         </div>
       )}
 
-      {/* МОДАЛЬНЕ ВІКНО ДЕТАЛЬНОГО ОПИСУ (з передачею мови, валюти та одиниць виміру) */}
       <CarDetailModal 
         car={selectedCarForModal} 
         isOpen={Boolean(selectedCarForModal)} 

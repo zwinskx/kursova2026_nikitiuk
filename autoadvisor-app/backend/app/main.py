@@ -5,9 +5,9 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 import random
 from .database import engine, Base, get_db
-from .models import User, Car, Review
+from .models import User, Car, Review, Booking
 from .decision_tree import evaluate_car_liquidity
-from .mailer import send_email_alert # Імпорт вашої реальної розсилки
+from .mailer import send_email_alert, send_reset_code_email # Імпорт вашої реальної розсилки
 
 Base.metadata.create_all(bind=engine)
 
@@ -104,6 +104,12 @@ class ReviewCreate(BaseModel):
     comment: str
     rating: int = 5
 
+class BookingCreate(BaseModel):
+    user_email: str
+    car_id: int
+    phone: str
+    comment: Optional[str] = ""
+
 @app.post("/api/register")
 def register_user(data: UserRegister, db: Session = Depends(get_db)):
     if data.email == "sasha342008@gmail.com":
@@ -137,9 +143,8 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     code = str(random.randint(100000, 999999))
     reset_codes_db[data.email] = code
     
-    # Відправка реального листа з кодом через mailer
     try:
-        send_email_alert(to_email=data.email, car_title="Код відновлення пароля", price=code)
+        send_reset_code_email(to_email=data.email, title="Код відновлення пароля", code=code)
     except Exception:
         pass
         
@@ -246,7 +251,6 @@ def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
     db.add(new_car)
     db.commit()
     
-    # Розраховуємо індекс ліквідності та виконуємо реальну розсилку підписникам
     metrics = evaluate_car_liquidity(car_data.mileage, car_data.year, car_data.brand)
     score = car_data.custom_liquidity if car_data.custom_liquidity is not None else metrics["liquidity_score"]
     
@@ -271,6 +275,48 @@ def delete_car(car_id: int, db: Session = Depends(get_db)):
         db.delete(car)
         db.commit()
     return {"message": "Видалено з бази."}
+
+@app.get("/api/bookings")
+def get_bookings(db: Session = Depends(get_db)):
+    bookings = db.query(Booking).all()
+    return [{
+        "id": b.id,
+        "user_email": b.user_email,
+        "car_id": b.car_id,
+        "phone": b.phone,
+        "comment": b.comment,
+        "status": b.status
+    } for b in bookings]
+
+@app.post("/api/bookings")
+def create_booking(data: BookingCreate, db: Session = Depends(get_db)):
+    new_booking = Booking(
+        user_email=data.user_email,
+        car_id=data.car_id,
+        phone=data.phone,
+        comment=data.comment,
+        status="pending"
+    )
+    db.add(new_booking)
+    db.commit()
+    return {"message": "Бронювання успішно створено!"}
+
+@app.put("/api/admin/bookings/{booking_id}")
+def update_booking_status(booking_id: int, status_data: dict, db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Бронювання не знайдено")
+    booking.status = status_data.get("status", booking.status)
+    db.commit()
+    return {"message": "Статус бронювання оновлено!"}
+
+@app.delete("/api/admin/bookings/{booking_id}")
+def delete_booking(booking_id: int, db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if booking:
+        db.delete(booking)
+        db.commit()
+    return {"message": "Бронювання видалено з бази."}
 
 @app.get("/api/reviews")
 def get_reviews(db: Session = Depends(get_db)):
