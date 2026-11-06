@@ -9,6 +9,10 @@ class User(Base):
     password = Column(String(255), nullable=False)
     display_name = Column(String(100), default="User")
     is_admin = Column(Boolean, default=False)
+    # Поля налаштувань сповіщень
+    email_alerts = Column(Boolean, default=True)
+    delivery_frequency = Column(String(50), default="Daily digest")
+    min_liquidity = Column(Integer, default=85)
 
 class Car(Base):
     __tablename__ = "cars"
@@ -20,9 +24,12 @@ class Car(Base):
     transmission = Column(String(50), nullable=False)
     mileage = Column(Integer, nullable=False)
     price = Column(Float, nullable=False)
+    engine_volume = Column(String(20), default="2.0L")  # Об'єм двигуна
+    custom_liquidity = Column(Integer, nullable=True)     # Кастомна ліквідність від адміна
     badge = Column(String(50), default="BEST MATCH")
     image_url = Column(String(500), nullable=True)
-
+    description = Column(Text, default="Надійний та комфортний автомобіль із чудовими характеристиками для щоденних поїздок.")
+    
 class Review(Base):
     __tablename__ = "reviews"
     id = Column(Integer, primary_key=True, index=True)

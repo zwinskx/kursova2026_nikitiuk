@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
+import random
 from .database import engine, Base, get_db
 from .models import User, Car, Review
 from .decision_tree import evaluate_car_liquidity
+from .mailer import send_email_alert # Імпорт вашої реальної розсилки
 
 Base.metadata.create_all(bind=engine)
 
@@ -55,6 +57,9 @@ def startup_db():
     db.commit()
     db.close()
 
+# Тимчасове сховище кодів відновлення пароля в пам'яті (email -> код)
+reset_codes_db = {}
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
@@ -64,6 +69,22 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+class PreferencesUpdate(BaseModel):
+    display_name: str
+    email_alerts: bool
+    delivery_frequency: str
+    min_liquidity: int
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
 class CarCreate(BaseModel):
     brand: str
     model: str
@@ -72,7 +93,11 @@ class CarCreate(BaseModel):
     transmission: str
     mileage: int
     price: float
+    engine_volume: Optional[str] = "2.0L"
+    custom_liquidity: Optional[int] = None
+    badge: Optional[str] = "AI RECOMMEND"
     image_url: str
+    description: Optional[str] = "Опис відсутній"
 
 class ReviewCreate(BaseModel):
     author: str
@@ -103,8 +128,72 @@ def login_user(data: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Невірний email або пароль.")
     return {"message": "Вхід успішний!", "user_id": user.id, "is_admin": user.is_admin, "display_name": user.display_name, "email": user.email}
 
+@app.post("/api/auth/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Користувача з такою поштою не знайдено.")
+    
+    code = str(random.randint(100000, 999999))
+    reset_codes_db[data.email] = code
+    
+    # Відправка реального листа з кодом через mailer
+    try:
+        send_email_alert(to_email=data.email, car_title="Код відновлення пароля", price=code)
+    except Exception:
+        pass
+        
+    return {"message": f"Код підтвердження успішно надіслано на пошту {data.email}!"}
+
+@app.post("/api/auth/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    stored_code = reset_codes_db.get(data.email)
+    if not stored_code or stored_code != data.code:
+        raise HTTPException(status_code=400, detail="Невірний або прострочений код підтвердження.")
+    
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Пароль має містити мінімум 8 символів.")
+        
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено.")
+        
+    user.password = data.new_password
+    db.commit()
+    del reset_codes_db[data.email]
+    
+    return {"message": "Пароль успішно змінено!"}
+
+@app.put("/api/user/{user_id}/preferences")
+def update_preferences(user_id: int, data: PreferencesUpdate, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Користувача не знайдено.")
+    
+    if data.current_password and data.new_password:
+        if user.password != data.current_password:
+            raise HTTPException(status_code=400, detail="Поточний пароль вказано невірно.")
+        if len(data.new_password) < 8:
+            raise HTTPException(status_code=400, detail="Новий пароль має містити мінімум 8 символів.")
+        user.password = data.new_password
+
+    user.display_name = data.display_name
+    user.email_alerts = data.email_alerts
+    user.delivery_frequency = data.delivery_frequency
+    user.min_liquidity = data.min_liquidity
+    db.commit()
+    
+    return {"message": "Налаштування успішно збережено!"}
+
 @app.get("/api/recommendations")
-def get_recommendations(budget_max: float = 150000, brand: str = "All", body_type: str = "Any", transmission: str = "Any", db: Session = Depends(get_db)):
+def get_recommendations(
+    budget_max: float = 150000, 
+    brand: str = "All", 
+    body_type: str = "Any", 
+    transmission: str = "Any", 
+    min_liquidity: int = 0, 
+    db: Session = Depends(get_db)
+):
     query = db.query(Car)
     if budget_max:
         query = query.filter(Car.price <= budget_max)
@@ -119,20 +208,61 @@ def get_recommendations(budget_max: float = 150000, brand: str = "All", body_typ
     result = []
     for car in cars:
         metrics = evaluate_car_liquidity(car.mileage, car.year, car.brand)
-        result.append({
-            "id": car.id, "title": f"{car.brand} {car.model}", "price": car.price,
-            "year": car.year, "mileage": f"{car.mileage:,} mi", "body_type": car.body_type,
-            "transmission": car.transmission, "badge": car.badge, "image_url": car.image_url,
-            "liquidity_score": metrics["liquidity_score"], "liquidity_status": metrics["liquidity_status"]
-        })
+        score = car.custom_liquidity if car.custom_liquidity is not None else metrics["liquidity_score"]
+        
+        if score >= min_liquidity:
+            result.append({
+                "id": car.id, 
+                "title": f"{car.brand} {car.model}", 
+                "price": car.price,
+                "year": car.year, 
+                "mileage": f"{car.mileage:,} mi", 
+                "mileage_raw": car.mileage,
+                "body_type": car.body_type,
+                "transmission": car.transmission, 
+                "badge": car.badge, 
+                "image_url": car.image_url,
+                "liquidity_score": score, 
+                "liquidity_status": metrics["liquidity_status"]
+            })
     return result
 
 @app.post("/api/admin/cars")
 def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
-    new_car = Car(**car_data.dict(), badge="AI RECOMMEND")
+    new_car = Car(
+        brand=car_data.brand,
+        model=car_data.model,
+        year=car_data.year,
+        body_type=car_data.body_type,
+        transmission=car_data.transmission,
+        mileage=car_data.mileage,
+        price=car_data.price,
+        engine_volume=car_data.engine_volume,
+        custom_liquidity=car_data.custom_liquidity,
+        badge=car_data.badge or "AI RECOMMEND",
+        image_url=car_data.image_url,
+        description=car_data.description
+    )
     db.add(new_car)
     db.commit()
-    return {"message": "Авто успішно додано в MySQL!"}
+    
+    # Розраховуємо індекс ліквідності та виконуємо реальну розсилку підписникам
+    metrics = evaluate_car_liquidity(car_data.mileage, car_data.year, car_data.brand)
+    score = car_data.custom_liquidity if car_data.custom_liquidity is not None else metrics["liquidity_score"]
+    
+    subscribers = db.query(User).filter(User.email_alerts == True).all()
+    for user in subscribers:
+        if score >= user.min_liquidity:
+            try:
+                send_email_alert(
+                    to_email=user.email,
+                    car_title=f"{car_data.brand} {car_data.model}",
+                    price=car_data.price
+                )
+            except Exception:
+                pass
+
+    return {"message": "Авто успішно додано в MySQL, розсилку на реальні пошти виконано!"}
 
 @app.delete("/api/admin/cars/{car_id}")
 def delete_car(car_id: int, db: Session = Depends(get_db)):
