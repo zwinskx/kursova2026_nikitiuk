@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey # type: ignore
+from sqlalchemy import Column, DateTime, Integer, String, Float, Boolean, ForeignKey, Text
 from .database import Base
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users"
@@ -12,7 +13,7 @@ class User(Base):
     email_alerts = Column(Boolean, default=True)
     delivery_frequency = Column(String(50), default="Daily digest")
     min_liquidity = Column(Integer, default=85)
-
+    avatar_url = Column(Text, nullable=True)
 
 class Car(Base):
     __tablename__ = "cars"
@@ -50,3 +51,14 @@ class Booking(Base):
     phone = Column(String(50), nullable=False)
     comment = Column(String(500), nullable=True)
     status = Column(String(50), default="pending")  # pending, approved, rejected
+
+class ForumMessage(Base):
+    __tablename__ = "forum_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    parent_id = Column(Integer, nullable=True, index=True)   # None = повідомлення верхнього рівня
+    user_email = Column(String(255), index=True, nullable=False)
+    author = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    

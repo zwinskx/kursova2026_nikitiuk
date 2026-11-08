@@ -1,13 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException, status # pyright: ignore[reportMissingImports]
-from fastapi.middleware.cors import CORSMiddleware # type: ignore
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 import random
+import time
+import secrets
 from .database import engine, Base, get_db
-from .models import User, Car, Review, Booking
+from .models import User, Car, Review, Booking, ForumMessage
 from .decision_tree import evaluate_car_liquidity
-from .mailer import send_email_alert, send_reset_code_email # Імпорт вашої реальної розсилки
+from .mailer import send_email_alert, send_reset_code_email
+from typing import Optional
+from pydantic import BaseModel
+from app import database
 
 Base.metadata.create_all(bind=engine)
 
@@ -20,6 +25,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def user_payload(user, message: str):
+    """Єдина відповідь для login/register: з email і всіма налаштуваннями розсилки."""
+    return {
+        "message": message,
+        "user_id": user.id,
+        "email": user.email,
+        "is_admin": user.is_admin,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "email_alerts": user.email_alerts if user.email_alerts is not None else True,
+        "delivery_frequency": user.delivery_frequency or "Daily digest",
+        "min_liquidity": user.min_liquidity if user.min_liquidity is not None else 85,
+    }
+
+class VerifyCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+def check_reset_code(email: str, code: str):
+    entry = reset_codes_db.get(email)
+    if not entry or time.time() > entry["expires"]:
+        reset_codes_db.pop(email, None)
+        raise HTTPException(status_code=400, detail="Код прострочений. Запросіть новий.")
+
+    if entry["attempts"] >= MAX_RESET_ATTEMPTS:
+        reset_codes_db.pop(email, None)
+        raise HTTPException(status_code=429, detail="Забагато спроб. Запросіть новий код.")
+
+    if not secrets.compare_digest(entry["code"], code.strip()):
+        entry["attempts"] += 1
+        raise HTTPException(status_code=400, detail="Невірний код підтвердження.")
+
+@app.post("/api/auth/verify-code")
+def verify_code(data: VerifyCodeRequest):
+    check_reset_code(data.email, data.code)
+    return {"message": "Код підтверджено."}
 
 @app.on_event("startup")
 def startup_db():
@@ -39,9 +82,9 @@ def startup_db():
     # Автозаповнення машин із фотографіями для розділів Discover / Overview
     if db.query(Car).count() == 0:
         initial_cars = [
-            Car(brand="BMW", model="330i M Sport", year=2022, body_type="Sedan", transmission="Automatic", mileage=24180, price=38450, badge="BEST MATCH", image_url="https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=800&q=80"),
-            Car(brand="Mercedes-Benz", model="C300", year=2023, body_type="Sedan", transmission="Automatic", mileage=18820, price=41290, badge="High liquidity", image_url="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?auto=format&fit=crop&w=800&q=80"),
-            Car(brand="Mercedes-AMG", model="C43", year=2021, body_type="Coupe", transmission="Automatic", mileage=31450, price=46800, badge="High liquidity", image_url="https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=800&q=80")
+            Car(brand="BMW", model="330i M Sport", year=2022, body_type="Sedan", transmission="Automatic", mileage=24180, price=38450, badge="BEST MATCH", image_url="https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=800&q=80", description="Динамічний преміум седан із чудовою керованістю та спортивним характером."),
+            Car(brand="Mercedes-Benz", model="C300", year=2023, body_type="Sedan", transmission="Automatic", mileage=18820, price=41290, badge="High liquidity", image_url="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?auto=format&fit=crop&w=800&q=80", description="Комфортабельний німецький автомобіль з розкішним салоном та високою ліквідністю."),
+            Car(brand="Mercedes-AMG", model="C43", year=2021, body_type="Coupe", transmission="Automatic", mileage=31450, price=46800, badge="High liquidity", image_url="https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=800&q=80", description="Спортивне купе для справжніх цінителів драйву та потужності.")
         ]
         db.add_all(initial_cars)
 
@@ -57,7 +100,9 @@ def startup_db():
     db.commit()
     db.close()
 
-# Тимчасове сховище кодів відновлення пароля в пам'яті (email -> код)
+# Коди скидання пароля: email -> {"code", "expires", "attempts"}
+RESET_CODE_TTL = 10 * 60   # 10 хвилин
+MAX_RESET_ATTEMPTS = 5
 reset_codes_db = {}
 
 class UserRegister(BaseModel):
@@ -81,6 +126,7 @@ class PreferencesUpdate(BaseModel):
     display_name: str
     email_alerts: bool
     delivery_frequency: str
+    avatar_url: Optional[str] = None
     min_liquidity: int
     current_password: Optional[str] = None
     new_password: Optional[str] = None
@@ -99,6 +145,21 @@ class CarCreate(BaseModel):
     image_url: str
     description: Optional[str] = "Опис відсутній"
 
+class CarUpdateModel(BaseModel):
+    title: Optional[str] = None
+    brand: Optional[str] = None
+    model: Optional[str] = None
+    year: Optional[int] = None
+    body_type: Optional[str] = None
+    transmission: Optional[str] = None
+    mileage: Optional[int] = None
+    price: Optional[float] = None
+    engine_volume: Optional[str] = None
+    custom_liquidity: Optional[int] = None
+    badge: Optional[str] = None
+    image_url: Optional[str] = None
+    description: Optional[str] = None
+
 class ReviewCreate(BaseModel):
     author: str
     comment: str
@@ -109,6 +170,14 @@ class BookingCreate(BaseModel):
     car_id: int
     phone: str
     comment: Optional[str] = ""
+
+class ForumCreate(BaseModel):
+    email: str
+    message: str
+    parent_id: Optional[int] = None
+    # author і avatar_url фронтенд теж надсилає, але сервер бере їх з БД
+    author: Optional[str] = None
+    avatar_url: Optional[str] = None
 
 @app.post("/api/register")
 def register_user(data: UserRegister, db: Session = Depends(get_db)):
@@ -125,14 +194,14 @@ def register_user(data: UserRegister, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    return {"message": "Успішна реєстрація!", "user_id": new_user.id, "is_admin": False, "display_name": new_user.display_name}
+    return user_payload(new_user, "Успішна реєстрація!")
 
 @app.post("/api/login")
 def login_user(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email, User.password == data.password).first()
     if not user:
         raise HTTPException(status_code=401, detail="Невірний email або пароль.")
-    return {"message": "Вхід успішний!", "user_id": user.id, "is_admin": user.is_admin, "display_name": user.display_name, "email": user.email}
+    return user_payload(user, "Вхід успішний!")
 
 @app.post("/api/auth/forgot-password")
 def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
@@ -140,8 +209,12 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="Користувача з такою поштою не знайдено.")
     
-    code = str(random.randint(100000, 999999))
-    reset_codes_db[data.email] = code
+    code = f"{secrets.randbelow(900000) + 100000}"
+    reset_codes_db[data.email] = {
+        "code": code,
+        "expires": time.time() + RESET_CODE_TTL,
+        "attempts": 0,
+    }
     
     try:
         send_reset_code_email(to_email=data.email, title="Код відновлення пароля", code=code)
@@ -152,43 +225,75 @@ def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/auth/reset-password")
 def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
-    stored_code = reset_codes_db.get(data.email)
-    if not stored_code or stored_code != data.code:
-        raise HTTPException(status_code=400, detail="Невірний або прострочений код підтвердження.")
-    
+    check_reset_code(data.email, data.code)
+
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Пароль має містити мінімум 8 символів.")
-        
+
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="Користувача не знайдено.")
-        
+
     user.password = data.new_password
     db.commit()
-    del reset_codes_db[data.email]
-    
+    reset_codes_db.pop(data.email, None)
+
     return {"message": "Пароль успішно змінено!"}
 
 @app.put("/api/user/{user_id}/preferences")
-def update_preferences(user_id: int, data: PreferencesUpdate, db: Session = Depends(get_db)):
+def update_preferences(
+    user_id: int,
+    data: PreferencesUpdate,
+    db: Session = Depends(get_db)
+):
     user = db.query(User).filter(User.id == user_id).first()
+
     if not user:
-        raise HTTPException(status_code=404, detail="Користувача не знайдено.")
-    
+        raise HTTPException(
+            status_code=404,
+            detail="Користувача не знайдено."
+        )
+
+    # Перевірка зміни пароля
     if data.current_password and data.new_password:
         if user.password != data.current_password:
-            raise HTTPException(status_code=400, detail="Поточний пароль вказано невірно.")
+            raise HTTPException(
+                status_code=400,
+                detail="Поточний пароль вказано невірно."
+            )
+
         if len(data.new_password) < 8:
-            raise HTTPException(status_code=400, detail="Новий пароль має містити мінімум 8 символів.")
+            raise HTTPException(
+                status_code=400,
+                detail="Новий пароль має містити мінімум 8 символів."
+            )
+
         user.password = data.new_password
 
+    # Оновлення інформації користувача
     user.display_name = data.display_name
     user.email_alerts = data.email_alerts
     user.delivery_frequency = data.delivery_frequency
     user.min_liquidity = data.min_liquidity
+
+    # ЗБЕРЕЖЕННЯ ФОТО ПРОФІЛЮ
+    user.avatar_url = data.avatar_url
+
     db.commit()
-    
-    return {"message": "Налаштування успішно збережено!"}
+    db.refresh(user)
+
+    return {
+        "message": "Налаштування успішно збережено!",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "email_alerts": user.email_alerts,
+            "delivery_frequency": user.delivery_frequency,
+            "min_liquidity": user.min_liquidity
+        }
+    }
 
 @app.get("/api/recommendations")
 def get_recommendations(
@@ -219,14 +324,18 @@ def get_recommendations(
             result.append({
                 "id": car.id, 
                 "title": f"{car.brand} {car.model}", 
+                "brand": car.brand,
+                "model": car.model,
                 "price": car.price,
                 "year": car.year, 
                 "mileage": f"{car.mileage:,} mi", 
                 "mileage_raw": car.mileage,
                 "body_type": car.body_type,
                 "transmission": car.transmission, 
+                "engine_volume": car.engine_volume,
                 "badge": car.badge, 
                 "image_url": car.image_url,
+                "description": car.description,
                 "liquidity_score": score, 
                 "liquidity_status": metrics["liquidity_status"]
             })
@@ -256,7 +365,7 @@ def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
     
     subscribers = db.query(User).filter(User.email_alerts == True).all()
     for user in subscribers:
-        if score >= user.min_liquidity:
+        if score >= (user.min_liquidity or 0):
             try:
                 send_email_alert(
                     to_email=user.email,
@@ -267,6 +376,31 @@ def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
                 pass
 
     return {"message": "Авто успішно додано в MySQL, розсилку на реальні пошти виконано!"}
+
+@app.put("/api/admin/cars/{car_id}")
+def update_car(car_id: int, car_data: CarUpdateModel, db: Session = Depends(get_db)):
+    car = db.query(Car).filter(Car.id == car_id).first()
+    if not car:
+        raise HTTPException(status_code=404, detail="Автомобіль не знайдено.")
+    
+    if car_data.brand is not None: car.brand = car_data.brand
+    if car_data.model is not None: car.model = car_data.model
+    if car_data.year is not None: car.year = car_data.year
+    if car_data.body_type is not None: car.body_type = car_data.body_type
+    if car_data.transmission is not None: car.transmission = car_data.transmission
+    if car_data.mileage is not None: car.mileage = car_data.mileage
+    if car_data.price is not None: car.price = car_data.price
+    if car_data.engine_volume is not None: car.engine_volume = car_data.engine_volume
+    if car_data.custom_liquidity is not None: car.custom_liquidity = car_data.custom_liquidity
+    if car_data.badge is not None: car.badge = car_data.badge
+    if car_data.image_url is not None: car.image_url = car_data.image_url
+    if car_data.description is not None: 
+        car.description = car_data.description  # Гарантоване оновлення опису в базі даних
+
+
+    db.commit()
+    db.refresh(car)
+    return {"message": "Автомобіль успішно оновлено!"}
 
 @app.delete("/api/admin/cars/{car_id}")
 def delete_car(car_id: int, db: Session = Depends(get_db)):
@@ -328,3 +462,77 @@ def add_review(data: ReviewCreate, db: Session = Depends(get_db)):
     db.add(new_rev)
     db.commit()
     return {"message": "Відгук додано!"}
+
+
+# ===================== ФОРУМ =====================
+
+@app.get("/api/forum")
+def get_forum(db: Session = Depends(get_db)):
+    msgs = db.query(ForumMessage).order_by(ForumMessage.created_at.asc()).all()
+
+    # Аватарки беремо з таблиці користувачів, щоб не зберігати base64 у кожному повідомленні
+    emails = {m.user_email for m in msgs}
+    users = db.query(User).filter(User.email.in_(emails)).all() if emails else []
+    avatars = {u.email: (u.avatar_url or "") for u in users}
+
+    return {
+        "messages": [{
+            "id": m.id,
+            "parent_id": m.parent_id,
+            "user_email": m.user_email,
+            "author": m.author,
+            "message": m.message,
+            "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
+        } for m in msgs],
+        "avatars": avatars,
+    }
+
+@app.post("/api/forum")
+def post_forum(data: ForumCreate, db: Session = Depends(get_db)):
+    # Писати можуть лише зареєстровані користувачі
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user:
+        raise HTTPException(status_code=403, detail="Писати у форум можуть лише зареєстровані користувачі.")
+
+    text = (data.message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Повідомлення порожнє.")
+    if len(text) > 1000:
+        raise HTTPException(status_code=400, detail="Максимум 1000 символів.")
+
+    if data.parent_id is not None:
+        parent = db.query(ForumMessage).filter(ForumMessage.id == data.parent_id).first()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Повідомлення, на яке ви відповідаєте, не знайдено.")
+
+    msg = ForumMessage(
+        parent_id=data.parent_id,
+        user_email=user.email,
+        author=user.display_name,
+        message=text,
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+    return {"message": "Повідомлення додано!", "id": msg.id}
+
+@app.delete("/api/forum/{message_id}")
+def delete_forum_message(message_id: int, email: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    msg = db.query(ForumMessage).filter(ForumMessage.id == message_id).first()
+    if not user or not msg:
+        raise HTTPException(status_code=404, detail="Не знайдено.")
+    if msg.user_email != user.email and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Можна видаляти лише свої повідомлення.")
+
+    # Видаляємо повідомлення разом з усіма відповідями
+    to_delete = [msg.id]
+    queue = [msg.id]
+    while queue:
+        children = db.query(ForumMessage).filter(ForumMessage.parent_id.in_(queue)).all()
+        queue = [c.id for c in children]
+        to_delete.extend(queue)
+
+    db.query(ForumMessage).filter(ForumMessage.id.in_(to_delete)).delete(synchronize_session=False)
+    db.commit()
+    return {"message": "Видалено."}
