@@ -8,7 +8,7 @@ export default function DiscoverPage() {
   const {
     currentText, formatPrice, formatMileage, budget, setBudget, selectedBrand, setSelectedBrand,
     selectedBody, setSelectedBody, minLiquidityFilter, setMinLiquidityFilter, handleApplyFilters,
-    cars, currentUserData, handleToggleSave, handleOpenCarDetail, handleOpenBookingModal
+    cars, currentUserData, handleToggleSave, handleOpenCarDetail, handleOpenBookingModal, getFinalPrice
   } = useApp();
 
   return (
@@ -63,6 +63,9 @@ export default function DiscoverPage() {
               <div className="h-48 overflow-hidden relative group">
                 <img src={car.image_url} alt={car.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                 <span className="absolute top-3 left-3 text-[10px] font-extrabold px-3 py-1 bg-emerald-500 text-white rounded-full uppercase shadow">{car.badge}</span>
+                    {car.discount > 0 && (
+                      <span className="absolute bottom-3 left-3 text-[10px] font-extrabold px-3 py-1 bg-red-500 text-white rounded-full uppercase shadow">-{car.discount}%</span>
+                    )}
                 {isBooked && (
                   <span className="absolute top-3 right-14 text-[10px] font-black px-3 py-1 bg-amber-500 text-slate-950 rounded-full uppercase shadow">{currentText.bookedStatus}</span>
                 )}
@@ -73,12 +76,15 @@ export default function DiscoverPage() {
               <div className="p-5 space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-lg text-left">{car.title}</h3>
-                  <span className="text-lg font-black text-emerald-400">{formatPrice(car.price)}</span>
+                  <div className="text-right">
+                    {car.discount > 0 && <span className="block text-[10px] font-semibold line-through text-slate-400">{formatPrice(car.price)}</span>}
+                    <span className="text-lg font-black text-emerald-400">{formatPrice(getFinalPrice(car))}</span>
+                  </div>
                 </div>
 
                 <p className={`text-xs font-semibold text-left ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
-                 {car.body_type} • {car.year} • ⚙️ {car.engine_volume || '2.0L'} • {formatMileage(car.mileage_raw ?? car.mileage ?? 15000)}
-               </p>
+                  {car.body_type} • {car.year} • ⚙️ {car.engine_volume || '2.0L'} • {formatMileage(car.mileage ?? 15000)}
+                </p>
 
                 <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                   <div className="flex justify-between items-center mb-1">

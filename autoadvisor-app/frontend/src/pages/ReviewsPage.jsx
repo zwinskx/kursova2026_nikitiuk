@@ -111,8 +111,7 @@ export default function ReviewsPage() {
         </form>
       </div>
 
-      {/* Форум: писати й відповідати можуть лише зареєстровані користувачі */}
-      <ForumSection />
+       <ForumSection />
     </div>
   );
 }

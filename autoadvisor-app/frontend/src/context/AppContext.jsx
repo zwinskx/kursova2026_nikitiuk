@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import * as translationsModule from '../constants/translations';
-const t = translationsModule.t || translationsModule.translations || translationsModule.default;
+import { t } from '../constants/translations';
 
 const AppContext = createContext(null);
 
@@ -102,24 +101,6 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (user) {
       localStorage.setItem('autoadvisor_user', JSON.stringify(user));
-      setSettingsName(user.display_name);
-      setSettingsAvatar(user.avatar_url || '');
-      setEmailAlerts(user.email_alerts ?? true);
-      setDeliveryFreq(user.delivery_frequency ?? 'Daily digest');
-      setMinLiquidity(user.min_liquidity ?? 85);
-
-      // Гарантуємо, що для нового акаунта існують записи в персональних даних
-      setUserPersonalData(prev => {
-        if (!prev[user.email]) {
-          return {
-            ...prev,
-            [user.email]: { saved: [], booked: [], recent: [], bookingsDetails: {} }
-          };
-        }
-        return prev;
-      });
-
-      // Оновлюємо список збережених акаунтів на пристрої
       setSavedAccounts(prev => {
         const exists = prev.some(acc => acc.email === user.email);
         const updated = exists ? prev.map(acc => acc.email === user.email ? user : acc) : [...prev, user];
@@ -234,6 +215,13 @@ export function AppProvider({ children }) {
     return `${converted.toLocaleString()} ${symbol}`;
   };
 
+  // Ціна зі знижкою (discount — відсоток від 0 до 90)
+  const getFinalPrice = (car) => {
+    const d = Number(car?.discount) || 0;
+    if (!car?.price || d <= 0) return car?.price;
+    return Math.round(car.price * (1 - d / 100));
+  };
+
   const formatMileage = (mileageInMiles) => {
     if (typeof mileageInMiles !== 'number') return mileageInMiles;
     if (distanceUnit === 'km') {
@@ -293,111 +281,58 @@ export function AppProvider({ children }) {
     .catch(() => alert(lang === 'ua' ? 'Помилка підключення до сервера.' : 'Server connection error.'));
   };
 
-  
-const handleSavePreferences = async (e) => {
-  e.preventDefault();
-
-  if (!user) return;
-
-  if (!settingsName.trim()) {
-    alert(lang === 'ua' ? "Введіть ім'я!" : 'Enter your name!');
-    return;
-  }
-
-  if (newPass) {
-    if (!currentPass) {
-      alert(lang === 'ua' ? 'Введіть поточний пароль!' : 'Enter current password!');
-      return;
-    }
-
-    if (newPass.length < 8) {
-      alert(lang === 'ua' ? 'Новий пароль має містити мінімум 8 символів!' : 'New password must contain at least 8 characters!');
-      return;
-    }
-
-    if (newPass !== confirmNewPass) {
+  const handleSavePreferences = (e) => {
+    e.preventDefault();
+    if (!user) return;
+    if (newPass && newPass !== confirmNewPass) {
       alert(lang === 'ua' ? 'Нові паролі не збігаються!' : 'New passwords do not match!');
       return;
     }
-  }
-
-  const updatedUser = {
-    ...user,
-    display_name: settingsName.trim(),
-    avatar_url: settingsAvatar,
-    email_alerts: emailAlerts,
-    delivery_frequency: deliveryFreq,
-    min_liquidity: Number(minLiquidity)
-  };
-
-  try {
-    const response = await fetch(
-      `http://127.0.0.1:8000/api/user/${user.user_id || user.id}/preferences`,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          display_name: settingsName.trim(),
-          avatar_url: settingsAvatar,
-          email_alerts: emailAlerts,
-          delivery_frequency: deliveryFreq,
-          min_liquidity: Number(minLiquidity),
-          ...(newPass ? {
-            current_password: currentPass,
-            new_password: newPass
-          } : {})
-        })
-      }
-    );
-
-    const responseText = await response.text();
-    let data = {};
-
-    try {
-      data = responseText ? JSON.parse(responseText) : {};
-    } catch {
-      data = {};
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        data.detail ||
-        data.message ||
-        `Server error: ${response.status}`
-      );
-    }
-
-    setUser(updatedUser);
 
     setLang(settingsLang);
     setCurrency(settingsCurrency);
     setDistanceUnit(settingsDistance);
 
-    setIsSettingsOpen(false);
-
-    setCurrentPass('');
-    setNewPass('');
-    setConfirmNewPass('');
-
-    alert(
-      lang === 'ua'
-        ? 'Налаштування успішно збережено!'
-        : 'Preferences saved successfully!'
-    );
-
-  } catch (error) {
-    console.error('Settings save error:', error);
-
-    alert(
-      (lang === 'ua'
-        ? 'Не вдалося зберегти налаштування: '
-        : 'Failed to save settings: ') + error.message
-    );
-  }
-};
-
+    fetch(`http://127.0.0.1:8000/api/user/${user.user_id || user.id}/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        display_name: settingsName,
+        avatar_url: settingsAvatar, // Зберігаємо посилання або base64 рядок у БД
+        email_alerts: emailAlerts,
+        delivery_frequency: deliveryFreq,
+        min_liquidity: Number(minLiquidity),
+        ...(newPass ? { current_password: currentPass, new_password: newPass } : {})
+      })
+    })
+    .then(res => res.json().then(data => ({ status: res.status, body: data })))
+    .then(res => {
+      if (res.status === 200) {
+        const updatedUser = {
+          ...user,
+          display_name: settingsName,
+          avatar_url: settingsAvatar,
+          email_alerts: emailAlerts,
+          delivery_frequency: deliveryFreq,
+          min_liquidity: minLiquidity
+        };
+        setUser(updatedUser);
+        setIsSettingsOpen(false);
+        alert(res.body.message || (lang === 'ua' ? 'Налаштування успішно збережено!' : 'Preferences saved successfully!'));
+        setCurrentPass('');
+        setNewPass('');
+        setConfirmNewPass('');
+      } else {
+        alert(res.body.detail || (lang === 'ua' ? 'Помилка збереження налаштувань' : 'Error saving settings'));
+      }
+    })
+    .catch(() => {
+      const updatedUser = { ...user, display_name: settingsName, avatar_url: settingsAvatar, email_alerts: emailAlerts };
+      setUser(updatedUser);
+      setIsSettingsOpen(false);
+      alert(lang === 'ua' ? 'Налаштування успішно застосовано!' : 'Preferences applied successfully!');
+    });
+  };
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -410,38 +345,16 @@ const handleSavePreferences = async (e) => {
     }
   };
 
-  
-const handleAvatarUpload = (e) => {
-  const file = e.target.files?.[0];
-
-  if (!file) return;
-
-  if (!file.type.startsWith('image/')) {
-    alert(lang === 'ua' ? 'Оберіть файл зображення!' : 'Please select an image!');
-    return;
-  }
-
-  if (file.size > 2 * 1024 * 1024) {
-    alert(lang === 'ua' ? 'Розмір фото не повинен перевищувати 2 МБ!' : 'Image size must not exceed 2 MB!');
-    e.target.value = '';
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onloadend = () => {
-    if (reader.result) {
-      setSettingsAvatar(reader.result);
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSettingsAvatar(reader.result);
+      };
+      reader.readAsDataURL(file);
     }
   };
-
-  reader.onerror = () => {
-    alert(lang === 'ua' ? 'Не вдалося завантажити фото!' : 'Failed to upload image!');
-  };
-
-  reader.readAsDataURL(file);
-};
-
 
   const handleAddCar = (e) => {
     e.preventDefault();
@@ -490,7 +403,8 @@ const handleAvatarUpload = (e) => {
       price: finalPrice,
       year: finalYear,
       liquidity_score: finalLiquidity,
-      custom_liquidity: finalLiquidity
+      custom_liquidity: finalLiquidity,
+      discount: editingCar.discount !== '' && editingCar.discount != null ? Number(editingCar.discount) : 0
     };
 
     fetch(`http://127.0.0.1:8000/api/admin/cars/${editingCar.id}`, {
@@ -620,83 +534,60 @@ const handleAvatarUpload = (e) => {
     }, 800);
   };
 
-  // ===================== ФОРУМ =====================
-  const [forumMessages, setForumMessages] = useState([]);
-  const [forumAvatars, setForumAvatars] = useState({});
-  const [forumInput, setForumInput] = useState('');
+ const [forumMessages, setForumMessages] = useState([]);
+const [forumAvatars, setForumAvatars] = useState({});
+const [forumInput, setForumInput] = useState('');
 
   // Функція завантаження повідомлень форуму з БД
-  const fetchForumMessages = () => {
-    fetch('http://127.0.0.1:8000/api/forum')
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setForumMessages(data);
-        } else {
-          setForumMessages(data.messages || []);
-          setForumAvatars(data.avatars || {});
-        }
-      })
-      .catch(() => {});
-  };
+  // Функція завантаження повідомлень форуму з БД
+const fetchForumMessages = () => {
+  fetch('http://127.0.0.1:8000/api/forum')
+    .then(res => {
+      if (!res.ok) {
+        throw new Error('Не вдалося завантажити повідомлення форуму');
+      }
+      return res.json();
+    })
+    .then(data => {
+      setForumMessages(Array.isArray(data.messages) ? data.messages : []);
+      setForumAvatars(data.avatars || {});
+    })
+    .catch(error => {
+      console.error('Помилка завантаження форуму:', error);
+      setForumMessages([]);
+      setForumAvatars({});
+    });
+};
 
   useEffect(() => {
     fetchForumMessages();
-    // легке оновлення, щоб бачити нові повідомлення інших користувачів
-    const interval = setInterval(fetchForumMessages, 15000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Універсальна відправка: звичайне повідомлення або відповідь (parentId)
-  const postForumMessage = async (text, parentId = null) => {
+  const handleSendForumMessage = (e) => {
+    e.preventDefault();
     if (!user) {
       alert(lang === 'ua' ? 'Тільки зареєстровані користувачі з реальних пошт можуть писати у форум!' : 'Only registered users can write in the forum!');
       setIsAuthModalOpen(true);
-      return false;
+      return;
     }
-    if (!text || !text.trim()) return false;
+    if (!forumInput.trim()) return;
 
-    try {
-      const res = await fetch('http://127.0.0.1:8000/api/forum', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          author: user.display_name,
-          avatar_url: user.avatar_url || '',
-          message: text,
-          parent_id: parentId
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
+    fetch('http://127.0.0.1:8000/api/forum', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: user.email,
+        author: user.display_name,
+        avatar_url: user.avatar_url || '',
+        message: forumInput
+      })
+    })
+    .then(res => res.json())
+    .then(() => {
+      setForumInput('');
       fetchForumMessages();
-      return true;
-    } catch (err) {
-      alert((lang === 'ua' ? 'Помилка надсилання повідомлення: ' : 'Error sending message: ') + err.message);
-      return false;
-    }
-  };
-
-  const handleSendForumMessage = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    const ok = await postForumMessage(forumInput, null);
-    if (ok) setForumInput('');
-  };
-
-  const handleDeleteForumMessage = async (id) => {
-    if (!user) return;
-    if (!window.confirm(lang === 'ua' ? 'Видалити повідомлення разом з відповідями?' : 'Delete this message with all replies?')) return;
-    try {
-      const res = await fetch(`http://127.0.0.1:8000/api/forum/${id}?email=${encodeURIComponent(user.email)}`, {
-        method: 'DELETE'
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || `Error ${res.status}`);
-      fetchForumMessages();
-    } catch (err) {
-      alert(err.message);
-    }
+    })
+    .catch(() => alert(lang === 'ua' ? 'Помилка надсилання повідомлення' : 'Error sending message'));
   };
 
   const value = {
@@ -734,7 +625,7 @@ const handleAvatarUpload = (e) => {
     currentText,
     fetchCars, fetchReviews, fetchAdminBookings,
     currentUserData, updateCurrentUserData,
-    formatPrice, formatMileage, handleApplyFilters,
+    formatPrice, getFinalPrice, formatMileage, handleApplyFilters,
     totalDbCars, calculatedAvgPrice, calculatedLiquidityAvg,
     savedVehiclesObjects, calculatedSavedValue,
     handleAuth, handleSavePreferences, handleImageUpload, handleAvatarUpload,
@@ -742,9 +633,10 @@ const handleAvatarUpload = (e) => {
     handleOpenBookingModal, handleSubmitBooking, handleOpenCarDetail, handleAddReview,
     totalReviewsCount, averageRating, filteredReviews,
     handleSendMessageToAI,
-    forumMessages, setForumMessages, forumInput, setForumInput,
-    fetchForumMessages, handleSendForumMessage,
-    forumAvatars, postForumMessage, handleDeleteForumMessage
+   forumMessages, setForumMessages,
+forumAvatars, setForumAvatars,
+forumInput, setForumInput,
+fetchForumMessages, handleSendForumMessage
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

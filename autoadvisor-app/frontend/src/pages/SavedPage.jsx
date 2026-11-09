@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext';
 export default function SavedPage() {
   const { theme } = useTheme();
   const {
-    currentText, lang, currentUserData, cars, formatPrice, handleOpenBookingModal, handleToggleSave
+    currentText, lang, currentUserData, cars, formatPrice, getFinalPrice, handleOpenBookingModal, handleToggleSave
   } = useApp();
 
   return (
@@ -35,7 +35,15 @@ export default function SavedPage() {
                 <div>
                   <img src={car.image_url} alt="" className="w-full h-36 object-cover rounded-2xl mb-4" />
                   <h3 className="font-bold text-lg mb-1 text-left">{car.title}</h3>
-                  <p className="text-emerald-400 font-black text-lg mb-2 text-left">{formatPrice(car.price)}</p>
+                  <p className="text-emerald-400 font-black text-lg mb-2 text-left">
+                    {formatPrice(getFinalPrice(car))}
+                    {car.discount > 0 && (
+                      <>
+                        <span className="ml-2 text-xs font-semibold line-through text-slate-400">{formatPrice(car.price)}</span>
+                        <span className="ml-2 text-[10px] font-extrabold px-2 py-0.5 bg-red-500 text-white rounded-full">-{car.discount}%</span>
+                      </>
+                    )}
+                  </p>
                   {isBooked && (
                     <span className="inline-block px-2.5 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold text-[10px] rounded uppercase mb-2">
                       {statusText}

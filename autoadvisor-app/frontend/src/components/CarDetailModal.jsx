@@ -1,17 +1,18 @@
 import React from 'react';
-import { X, Bookmark } from 'lucide-react';
+import { X } from 'lucide-react';
 
 export default function CarDetailModal({ car, isOpen, onClose, theme, lang, formatPrice, formatMileage, onBook }) {
   if (!isOpen || !car) return null;
 
   const ua = lang === 'ua';
+  const finalPrice = Number(car.discount) > 0 ? Math.round(car.price * (1 - Number(car.discount) / 100)) : car.price;
 
   const specs = [
     { label: ua ? 'Рік' : 'Year', value: car.year },
     { label: ua ? 'Кузов' : 'Body', value: car.body_type },
     { label: ua ? 'Коробка' : 'Transmission', value: car.transmission },
     { label: ua ? 'Двигун' : 'Engine', value: car.engine_volume || '2.0L' },
-    { label: ua ? 'Пробіг' : 'Mileage', value: formatMileage(car.mileage_raw ?? car.mileage ?? 15000) },
+    { label: ua ? 'Пробіг' : 'Mileage', value: formatMileage(car.mileage ?? 15000) },
     { label: ua ? 'Ліквідність' : 'Liquidity', value: `${car.liquidity_score} / 100` },
   ];
 
@@ -29,7 +30,12 @@ export default function CarDetailModal({ car, isOpen, onClose, theme, lang, form
         <div className="p-8 space-y-6">
           <div className="flex justify-between items-center">
             <h3 className="text-2xl font-black">{car.title}</h3>
-            <span className="text-2xl font-black text-emerald-400">{formatPrice(car.price)}</span>
+            <div className="text-right">
+              {car.discount > 0 && (
+                <span className="block text-xs font-semibold line-through text-slate-400">{formatPrice(car.price)} <span className="ml-1 px-2 py-0.5 bg-red-500 text-white rounded-full no-underline inline-block">-{car.discount}%</span></span>
+              )}
+              <span className="text-2xl font-black text-emerald-400">{formatPrice(finalPrice)}</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -41,24 +47,15 @@ export default function CarDetailModal({ car, isOpen, onClose, theme, lang, form
             ))}
           </div>
 
-          {/* Блок ліквідності у вигляді зеленого круга та опису поруч */}
-          <div className={`p-4 rounded-2xl border flex items-center gap-4 ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-            <div className="w-14 h-14 rounded-full border-4 border-emerald-500 flex items-center justify-center font-black text-emerald-400 text-lg shrink-0 shadow-lg shadow-emerald-500/20">
-              {car.liquidity_score}
-            </div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                {ua ? 'Індекс ліквідності' : 'Resale outlook'}
-              </p>
-             
+          <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+            <div className="w-full bg-slate-700/50 h-2 rounded-full overflow-hidden">
+              <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${car.liquidity_score}%` }}></div>
             </div>
           </div>
 
-        <div>
-                 <p className={`text-xs font-medium mt-0.5 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
-                {car.description || (ua ? 'Цей автомобіль є лідером у своєму класі за швидкістю перепродажу та збереженням вартості.' : 'This vehicle maintains strong demand and low depreciation across local markets.')}
-              </p>
-        </div>
+          {car.description && (
+            <p className={`text-sm font-medium leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{car.description}</p>
+          )}
 
           <div className="flex gap-3">
             <button onClick={() => onBook(car)} className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer">

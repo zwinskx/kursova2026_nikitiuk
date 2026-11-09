@@ -1,3 +1,4 @@
+import os
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -6,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER_EMAIL = "support.autoadvisor@gmail.com"
-SENDER_PASSWORD = "hwvoinixgpisxqit"
+SENDER_PASSWORD = os.getenv("SMTP_PASSWORD", "hwvoinixgpisxqit")  # після відкликання прибери другий аргумент
 
 # 1. Лист про нове надходження в каталозі
 def send_email_alert(to_email: str, car_title: str, price):
