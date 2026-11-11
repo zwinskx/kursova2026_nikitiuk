@@ -1,126 +1,221 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
-from typing import Optional
-import random
+import os
+import re
 import time
 import secrets
+from datetime import datetime
+from typing import Optional, List
+
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session, joinedload
+from pydantic import BaseModel, EmailStr
+
 from .database import engine, Base, get_db
-from .models import User, Car, Review, Booking, ForumMessage
+from .models import User, Car, CarImage, Review, Booking, ForumMessage
 from .decision_tree import evaluate_car_liquidity
 from .mailer import send_email_alert, send_reset_code_email
-from typing import Optional
-from pydantic import BaseModel
-from app import database
+from .ai_chat import router as ai_router
+
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="AutoAdvisor Production API", version="6.0.0")
+app = FastAPI(
+    title="AutoAdvisor Production API",
+    version="6.1.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
+
+app.include_router(ai_router)
 
 
 def user_payload(user, message: str):
-    """Єдина відповідь для login/register: з email і всіма налаштуваннями розсилки."""
     return {
         "message": message,
+        "id": user.id,
         "user_id": user.id,
         "email": user.email,
-        "is_admin": user.is_admin,
+        "is_admin": bool(user.is_admin),
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
-        "email_alerts": user.email_alerts if user.email_alerts is not None else True,
-        "delivery_frequency": user.delivery_frequency or "Daily digest",
-        "min_liquidity": user.min_liquidity if user.min_liquidity is not None else 85,
+        "email_alerts": (
+            user.email_alerts
+            if user.email_alerts is not None
+            else True
+        ),
+        "delivery_frequency": (
+            user.delivery_frequency or "Daily digest"
+        ),
+        "min_liquidity": (
+            user.min_liquidity
+            if user.min_liquidity is not None
+            else 85
+        )
     }
+
+
+RESET_CODE_TTL = 10 * 60
+MAX_RESET_ATTEMPTS = 5
+reset_codes_db = {}
+
 
 class VerifyCodeRequest(BaseModel):
     email: EmailStr
     code: str
 
+
 def check_reset_code(email: str, code: str):
     entry = reset_codes_db.get(email)
+
     if not entry or time.time() > entry["expires"]:
         reset_codes_db.pop(email, None)
-        raise HTTPException(status_code=400, detail="Код прострочений. Запросіть новий.")
+        raise HTTPException(
+            status_code=400,
+            detail="Код прострочений. Запросіть новий."
+        )
 
     if entry["attempts"] >= MAX_RESET_ATTEMPTS:
         reset_codes_db.pop(email, None)
-        raise HTTPException(status_code=429, detail="Забагато спроб. Запросіть новий код.")
+        raise HTTPException(
+            status_code=429,
+            detail="Забагато спроб. Запросіть новий код."
+        )
 
-    if not secrets.compare_digest(entry["code"], code.strip()):
+    if not secrets.compare_digest(
+        entry["code"], code.strip()
+    ):
         entry["attempts"] += 1
-        raise HTTPException(status_code=400, detail="Невірний код підтвердження.")
+        raise HTTPException(
+            status_code=400,
+            detail="Невірний код підтвердження."
+        )
+
 
 @app.post("/api/auth/verify-code")
 def verify_code(data: VerifyCodeRequest):
     check_reset_code(data.email, data.code)
     return {"message": "Код підтверджено."}
 
+
 @app.on_event("startup")
 def startup_db():
     db = next(get_db())
-    
-    # Створення адміна за замовчуванням
-    admin_exists = db.query(User).filter(User.email == "sasha342008@gmail.com").first()
-    if not admin_exists:
-        admin_user = User(
-            email="sasha342008@gmail.com",
-            password="sn342008",
-            display_name="Sasha Admin",
-            is_admin=True
-        )
-        db.add(admin_user)
 
-    # Автозаповнення машин із фотографіями для розділів Discover / Overview
-    if db.query(Car).count() == 0:
-        initial_cars = [
-            Car(brand="BMW", model="330i M Sport", year=2022, body_type="Sedan", transmission="Automatic", mileage=24180, price=38450, badge="BEST MATCH", image_url="https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=800&q=80", description="Динамічний преміум седан із чудовою керованістю та спортивним характером."),
-            Car(brand="Mercedes-Benz", model="C300", year=2023, body_type="Sedan", transmission="Automatic", mileage=18820, price=41290, badge="High liquidity", image_url="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?auto=format&fit=crop&w=800&q=80", description="Комфортабельний німецький автомобіль з розкішним салоном та високою ліквідністю."),
-            Car(brand="Mercedes-AMG", model="C43", year=2021, body_type="Coupe", transmission="Automatic", mileage=31450, price=46800, badge="High liquidity", image_url="https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=800&q=80", description="Спортивне купе для справжніх цінителів драйву та потужності.")
-        ]
-        db.add_all(initial_cars)
+    try:
+        admin_email = os.getenv("ADMIN_EMAIL")
+        admin_password = os.getenv("ADMIN_PASSWORD")
 
-    # Автозаповнення відгуків
-    if db.query(Review).count() == 0:
-        default_revs = [
-            Review(author="Денис М.", comment="Саме те, що я шукав для щоденної роботи. Швидко, охайно й без зайвих складнощів.", rating=5),
-            Review(author="Софія Р.", comment="Загалом чудовий досвід. Особливо сподобалося, як легко знайти потрібну інформацію.", rating=5),
-            Review(author="Тарас В.", comment="Хороший старт і зрозумілий інтерфейс. Є кілька дрібниць, які ще можна вдосконалити.", rating=4)
-        ]
-        db.add_all(default_revs)
-        
-    db.commit()
-    db.close()
+        if admin_email and admin_password:
+            admin_exists = db.query(User).filter(
+                User.email == admin_email
+            ).first()
 
-# Коди скидання пароля: email -> {"code", "expires", "attempts"}
-RESET_CODE_TTL = 10 * 60   # 10 хвилин
-MAX_RESET_ATTEMPTS = 5
-reset_codes_db = {}
+            if not admin_exists:
+                db.add(User(
+                    email=admin_email,
+                    password=admin_password,
+                    display_name="Sasha Admin",
+                    is_admin=True
+                ))
+
+        if db.query(Car).count() == 0:
+            db.add_all([
+                Car(
+                    brand="BMW",
+                    model="330i M Sport",
+                    year=2022,
+                    body_type="Sedan",
+                    transmission="Automatic",
+                    mileage=24180,
+                    price=38450,
+                    badge="BEST MATCH",
+                    image_url="https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=800&q=80",
+                    description="Динамічний преміум седан із чудовою керованістю та спортивним характером."
+                ),
+                Car(
+                    brand="Mercedes-Benz",
+                    model="C300",
+                    year=2023,
+                    body_type="Sedan",
+                    transmission="Automatic",
+                    mileage=18820,
+                    price=41290,
+                    badge="High liquidity",
+                    image_url="https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?auto=format&fit=crop&w=800&q=80",
+                    description="Комфортабельний німецький автомобіль з розкішним салоном та високою ліквідністю."
+                ),
+                Car(
+                    brand="Mercedes-AMG",
+                    model="C43",
+                    year=2021,
+                    body_type="Coupe",
+                    transmission="Automatic",
+                    mileage=31450,
+                    price=46800,
+                    badge="High liquidity",
+                    image_url="https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=800&q=80",
+                    description="Спортивне купе для поціновувачів потужності й керованості."
+                )
+            ])
+
+        if db.query(Review).count() == 0:
+            db.add_all([
+                Review(
+                    author="Денис М.",
+                    comment="Саме те, що я шукав для щоденної роботи. Швидко, охайно й без зайвих складнощів.",
+                    rating=5
+                ),
+                Review(
+                    author="Софія Р.",
+                    comment="Загалом чудовий досвід. Особливо сподобалося, як легко знайти потрібну інформацію.",
+                    rating=5
+                ),
+                Review(
+                    author="Тарас В.",
+                    comment="Хороший старт і зрозумілий інтерфейс. Є кілька дрібниць, які ще можна вдосконалити.",
+                    rating=4
+                )
+            ])
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
 
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
     display_name: str
 
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     code: str
     new_password: str
+
 
 class PreferencesUpdate(BaseModel):
     display_name: str
@@ -130,6 +225,7 @@ class PreferencesUpdate(BaseModel):
     min_liquidity: int
     current_password: Optional[str] = None
     new_password: Optional[str] = None
+
 
 class CarCreate(BaseModel):
     brand: str
@@ -143,7 +239,9 @@ class CarCreate(BaseModel):
     custom_liquidity: Optional[int] = None
     badge: Optional[str] = "AI RECOMMEND"
     image_url: str
+    images: Optional[List[str]] = None
     description: Optional[str] = "Опис відсутній"
+
 
 class CarUpdateModel(BaseModel):
     title: Optional[str] = None
@@ -158,95 +256,190 @@ class CarUpdateModel(BaseModel):
     custom_liquidity: Optional[int] = None
     badge: Optional[str] = None
     image_url: Optional[str] = None
+    images: Optional[List[str]] = None
     description: Optional[str] = None
+
 
 class ReviewCreate(BaseModel):
     author: str
     comment: str
     rating: int = 5
 
+
 class BookingCreate(BaseModel):
-    user_email: str
+    user_email: EmailStr
     car_id: int
     phone: str
     comment: Optional[str] = ""
+
+
+class ArchiveToggle(BaseModel):
+    is_archived: bool
+
+
+class BookingStatusUpdate(BaseModel):
+    status: str
+
 
 class ForumCreate(BaseModel):
     email: str
     message: str
     parent_id: Optional[int] = None
-    # author і avatar_url фронтенд теж надсилає, але сервер бере їх з БД
     author: Optional[str] = None
     avatar_url: Optional[str] = None
 
+
+PHONE_LENGTHS = {
+    "380": 9,
+    "48": 9,
+    "49": 10,
+    "1": 10,
+    "44": 10,
+    "420": 9,
+    "33": 9,
+    "39": 10
+}
+
+
+def validate_booking_phone(phone: str) -> str:
+    phone = phone.strip()
+
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", phone):
+        raise HTTPException(
+            status_code=422,
+            detail="Неправильний формат номера телефону."
+        )
+
+    for prefix, length in sorted(
+        PHONE_LENGTHS.items(),
+        key=lambda item: len(item[0]),
+        reverse=True
+    ):
+        if phone.startswith("+" + prefix):
+            national = phone[len(prefix) + 1:]
+
+            if len(national) != length:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Неправильна довжина номера телефону."
+                )
+
+            if prefix == "380" and national.startswith("0"):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Перевірте український номер телефону."
+                )
+
+            return phone
+
+    raise HTTPException(
+        status_code=422,
+        detail="Країна номера телефону не підтримується."
+    )
+
+
 @app.post("/api/register")
-def register_user(data: UserRegister, db: Session = Depends(get_db)):
-    if data.email == "sasha342008@gmail.com":
-        raise HTTPException(status_code=400, detail="Ця пошта зарезервована для адміністратора.")
+def register_user(
+    data: UserRegister,
+    db: Session = Depends(get_db)
+):
     if len(data.password) < 8:
-        raise HTTPException(status_code=400, detail="Пароль має містити мінімум 8 символів.")
-    
-    existing = db.query(User).filter(User.email == data.email).first()
+        raise HTTPException(
+            status_code=400,
+            detail="Пароль має містити мінімум 8 символів."
+        )
+
+    existing = db.query(User).filter(
+        User.email == data.email
+    ).first()
+
     if existing:
-        raise HTTPException(status_code=400, detail="Користувач із таким email вже існує.")
-    
-    new_user = User(email=data.email, password=data.password, display_name=data.display_name, is_admin=False)
-    db.add(new_user)
+        raise HTTPException(
+            status_code=400,
+            detail="Користувач із таким email вже існує."
+        )
+
+    user = User(
+        email=data.email,
+        password=data.password,
+        display_name=data.display_name.strip(),
+        is_admin=False
+    )
+
+    db.add(user)
     db.commit()
-    db.refresh(new_user)
-    return user_payload(new_user, "Успішна реєстрація!")
+    db.refresh(user)
+
+    return user_payload(user, "Успішна реєстрація!")
+
 
 @app.post("/api/login")
-def login_user(data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email, User.password == data.password).first()
+def login_user(
+    data: UserLogin,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.email == data.email,
+        User.password == data.password
+    ).first()
+
     if not user:
-        raise HTTPException(status_code=401, detail="Невірний email або пароль.")
+        raise HTTPException(
+            status_code=401,
+            detail="Невірний email або пароль."
+        )
+
     return user_payload(user, "Вхід успішний!")
 
+
 @app.post("/api/auth/forgot-password")
-def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Користувача з такою поштою не знайдено.")
-    
-    code = f"{secrets.randbelow(900000) + 100000}"
-    reset_codes_db[data.email] = {
-        "code": code,
-        "expires": time.time() + RESET_CODE_TTL,
-        "attempts": 0,
+def forgot_password(
+    data: ForgotPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.email == data.email
+    ).first()
+
+    if user:
+        code = f"{secrets.randbelow(900000) + 100000}"
+
+        reset_codes_db[data.email] = {
+            "code": code,
+            "expires": time.time() + RESET_CODE_TTL,
+            "attempts": 0
+        }
+
+        try:
+            send_reset_code_email(
+                to_email=data.email,
+                title="Код відновлення пароля",
+                code=code
+            )
+        except Exception as error:
+            print("Email error:", type(error).__name__)
+
+    return {
+        "message": "Якщо адреса зареєстрована, код відновлення надіслано."
     }
-    
-    try:
-        send_reset_code_email(to_email=data.email, title="Код відновлення пароля", code=code)
-    except Exception:
-        pass
-        
-    return {"message": f"Код підтвердження успішно надіслано на пошту {data.email}!"}
+
 
 @app.post("/api/auth/reset-password")
-def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
     check_reset_code(data.email, data.code)
 
     if len(data.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Пароль має містити мінімум 8 символів.")
+        raise HTTPException(
+            status_code=400,
+            detail="Пароль має містити мінімум 8 символів."
+        )
 
-    user = db.query(User).filter(User.email == data.email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Користувача не знайдено.")
-
-    user.password = data.new_password
-    db.commit()
-    reset_codes_db.pop(data.email, None)
-
-    return {"message": "Пароль успішно змінено!"}
-
-@app.put("/api/user/{user_id}/preferences")
-def update_preferences(
-    user_id: int,
-    data: PreferencesUpdate,
-    db: Session = Depends(get_db)
-):
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.query(User).filter(
+        User.email == data.email
+    ).first()
 
     if not user:
         raise HTTPException(
@@ -254,8 +447,36 @@ def update_preferences(
             detail="Користувача не знайдено."
         )
 
-    # Перевірка зміни пароля
-    if data.current_password and data.new_password:
+    user.password = data.new_password
+    db.commit()
+    reset_codes_db.pop(data.email, None)
+
+    return {"message": "Пароль успішно змінено!"}
+
+
+@app.put("/api/user/{user_id}/preferences")
+def update_preferences(
+    user_id: int,
+    data: PreferencesUpdate,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.id == user_id
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Користувача не знайдено."
+        )
+
+    if data.new_password:
+        if not data.current_password:
+            raise HTTPException(
+                status_code=400,
+                detail="Вкажіть поточний пароль."
+            )
+
         if user.password != data.current_password:
             raise HTTPException(
                 status_code=400,
@@ -270,13 +491,16 @@ def update_preferences(
 
         user.password = data.new_password
 
-    # Оновлення інформації користувача
-    user.display_name = data.display_name
+    if not data.display_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Ім'я не може бути порожнім."
+        )
+
+    user.display_name = data.display_name.strip()
     user.email_alerts = data.email_alerts
     user.delivery_frequency = data.delivery_frequency
     user.min_liquidity = data.min_liquidity
-
-    # ЗБЕРЕЖЕННЯ ФОТО ПРОФІЛЮ
     user.avatar_url = data.avatar_url
 
     db.commit()
@@ -284,66 +508,151 @@ def update_preferences(
 
     return {
         "message": "Налаштування успішно збережено!",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "display_name": user.display_name,
-            "avatar_url": user.avatar_url,
-            "email_alerts": user.email_alerts,
-            "delivery_frequency": user.delivery_frequency,
-            "min_liquidity": user.min_liquidity
-        }
+        "user": user_payload(user, "") 
     }
+
+
+def booking_payload(booking):
+    return {
+        "id": booking.id,
+        "user_email": booking.user_email,
+        "car_id": booking.car_id,
+        "phone": booking.phone,
+        "comment": booking.comment,
+        "status": booking.status,
+        "created_at": (
+            booking.created_at.isoformat()
+            if booking.created_at
+            else None
+        ),
+        "decided_at": (
+            booking.decided_at.isoformat()
+            if booking.decided_at
+            else None
+        ),
+        "purchase_price": booking.purchase_price
+    }
+
 
 @app.get("/api/recommendations")
 def get_recommendations(
-    budget_max: float = 150000, 
-    brand: str = "All", 
-    body_type: str = "Any", 
-    transmission: str = "Any", 
-    min_liquidity: int = 0, 
+    budget_max: float = 150000,
+    brand: str = "All",
+    body_type: str = "Any",
+    transmission: str = "Any",
+    min_liquidity: int = 0,
     db: Session = Depends(get_db)
 ):
-    query = db.query(Car)
+    query = (
+        db.query(Car)
+        .options(joinedload(Car.images))
+        .filter(Car.is_deleted == False)
+    )
+
+
     if budget_max:
         query = query.filter(Car.price <= budget_max)
+
     if brand != "All":
         query = query.filter(Car.brand == brand)
+
     if body_type != "Any":
         query = query.filter(Car.body_type == body_type)
+
     if transmission != "Any":
         query = query.filter(Car.transmission == transmission)
 
     cars = query.all()
+
+    pending_ids = {
+        car_id
+        for (car_id,) in db.query(Booking.car_id).filter(
+            Booking.status == "pending"
+        ).all()
+    }
+
     result = []
+
     for car in cars:
-        metrics = evaluate_car_liquidity(car.mileage, car.year, car.brand)
-        score = car.custom_liquidity if car.custom_liquidity is not None else metrics["liquidity_score"]
-        
-        if score >= min_liquidity:
-            result.append({
-                "id": car.id, 
-                "title": f"{car.brand} {car.model}", 
-                "brand": car.brand,
-                "model": car.model,
-                "price": car.price,
-                "year": car.year, 
-                "mileage": f"{car.mileage:,} mi", 
-                "mileage_raw": car.mileage,
-                "body_type": car.body_type,
-                "transmission": car.transmission, 
-                "engine_volume": car.engine_volume,
-                "badge": car.badge, 
-                "image_url": car.image_url,
-                "description": car.description,
-                "liquidity_score": score, 
-                "liquidity_status": metrics["liquidity_status"]
-            })
+        metrics = evaluate_car_liquidity(
+            car.mileage,
+            car.year,
+            car.brand
+        )
+
+        score = (
+            car.custom_liquidity
+            if car.custom_liquidity is not None
+            else metrics["liquidity_score"]
+        )
+
+        if score < min_liquidity:
+            continue
+
+        images = [
+            item.image_url
+            for item in car.images
+            if item.image_url
+        ] or [car.image_url]
+
+        result.append({
+            "id": car.id,
+            "title": f"{car.brand} {car.model}",
+            "brand": car.brand,
+            "model": car.model,
+            "price": car.price,
+            "year": car.year,
+            "mileage": f"{car.mileage:,} mi",
+            "mileage_raw": car.mileage,
+            "body_type": car.body_type,
+            "transmission": car.transmission,
+            "engine_volume": car.engine_volume,
+            "badge": car.badge,
+            "image_url": car.image_url,
+            "images": images,
+            "image_urls": images,
+            "discount": 0,
+            "description": car.description,
+            "liquidity_score": score,
+            "liquidity_status": metrics["liquidity_status"],
+            "is_archived": bool(car.is_archived),
+            "booking_status": (
+                "pending" if car.id in pending_ids else None
+            )
+        })
+
+    result.sort(
+        key=lambda car: (
+            car["is_archived"],
+            car["id"]
+        )
+    )
+
     return result
 
+
 @app.post("/api/admin/cars")
-def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
-    new_car = Car(
+def add_car(
+    car_data: CarCreate,
+    db: Session = Depends(get_db)
+):
+    images = (
+        car_data.images
+        if car_data.images
+        else [car_data.image_url]
+    )
+
+    images = list(dict.fromkeys(
+        url for url in images if url
+    ))[:8]
+
+    if not images:
+        raise HTTPException(
+            status_code=400,
+            detail="Додайте хоча б одну фотографію."
+        )
+
+    car = Car(
         brand=car_data.brand,
         model=car_data.model,
         year=car_data.year,
@@ -354,185 +663,611 @@ def add_car(car_data: CarCreate, db: Session = Depends(get_db)):
         engine_volume=car_data.engine_volume,
         custom_liquidity=car_data.custom_liquidity,
         badge=car_data.badge or "AI RECOMMEND",
-        image_url=car_data.image_url,
+        image_url=images[0],
         description=car_data.description
     )
-    db.add(new_car)
+
+    db.add(car)
+    db.flush()
+
+    for position, url in enumerate(images):
+        db.add(CarImage(
+            car_id=car.id,
+            image_url=url,
+            position=position
+        ))
+
     db.commit()
-    
-    metrics = evaluate_car_liquidity(car_data.mileage, car_data.year, car_data.brand)
-    score = car_data.custom_liquidity if car_data.custom_liquidity is not None else metrics["liquidity_score"]
-    
-    subscribers = db.query(User).filter(User.email_alerts == True).all()
+    db.refresh(car)
+
+    metrics = evaluate_car_liquidity(
+        car.mileage,
+        car.year,
+        car.brand
+    )
+
+    score = (
+        car.custom_liquidity
+        if car.custom_liquidity is not None
+        else metrics["liquidity_score"]
+    )
+
+    subscribers = db.query(User).filter(
+        User.email_alerts == True
+    ).all()
+
     for user in subscribers:
         if score >= (user.min_liquidity or 0):
             try:
                 send_email_alert(
                     to_email=user.email,
-                    car_title=f"{car_data.brand} {car_data.model}",
-                    price=car_data.price
+                    car_title=f"{car.brand} {car.model}",
+                    price=car.price
                 )
             except Exception:
                 pass
 
-    return {"message": "Авто успішно додано в MySQL, розсилку на реальні пошти виконано!"}
+    return {
+        "message": "Авто успішно додано в MySQL!",
+        "car_id": car.id
+    }
+
 
 @app.put("/api/admin/cars/{car_id}")
-def update_car(car_id: int, car_data: CarUpdateModel, db: Session = Depends(get_db)):
-    car = db.query(Car).filter(Car.id == car_id).first()
-    if not car:
-        raise HTTPException(status_code=404, detail="Автомобіль не знайдено.")
-    
-    if car_data.brand is not None: car.brand = car_data.brand
-    if car_data.model is not None: car.model = car_data.model
-    if car_data.year is not None: car.year = car_data.year
-    if car_data.body_type is not None: car.body_type = car_data.body_type
-    if car_data.transmission is not None: car.transmission = car_data.transmission
-    if car_data.mileage is not None: car.mileage = car_data.mileage
-    if car_data.price is not None: car.price = car_data.price
-    if car_data.engine_volume is not None: car.engine_volume = car_data.engine_volume
-    if car_data.custom_liquidity is not None: car.custom_liquidity = car_data.custom_liquidity
-    if car_data.badge is not None: car.badge = car_data.badge
-    if car_data.image_url is not None: car.image_url = car_data.image_url
-    if car_data.description is not None: 
-        car.description = car_data.description  # Гарантоване оновлення опису в базі даних
+def update_car(
+    car_id: int,
+    car_data: CarUpdateModel,
+    db: Session = Depends(get_db)
+):
+    car = db.query(Car).filter(
+        Car.id == car_id
+    ).first()
 
+    if not car:
+        raise HTTPException(
+            status_code=404,
+            detail="Автомобіль не знайдено."
+        )
+
+    fields = [
+        "brand",
+        "model",
+        "year",
+        "body_type",
+        "transmission",
+        "mileage",
+        "price",
+        "engine_volume",
+        "custom_liquidity",
+        "badge",
+        "description"
+    ]
+
+    for field in fields:
+        value = getattr(car_data, field)
+
+        if value is not None:
+            setattr(car, field, value)
+
+    if car_data.images is not None:
+        images = list(dict.fromkeys(
+            url for url in car_data.images if url
+        ))[:8]
+
+        if not images:
+            raise HTTPException(
+                status_code=400,
+                detail="Потрібна хоча б одна фотографія."
+            )
+
+        db.query(CarImage).filter(
+            CarImage.car_id == car_id
+        ).delete(synchronize_session=False)
+
+        for position, url in enumerate(images):
+            db.add(CarImage(
+                car_id=car.id,
+                image_url=url,
+                position=position
+            ))
+
+        car.image_url = images[0]
+
+    elif car_data.image_url is not None:
+        car.image_url = car_data.image_url
 
     db.commit()
     db.refresh(car)
+
     return {"message": "Автомобіль успішно оновлено!"}
 
+
 @app.delete("/api/admin/cars/{car_id}")
-def delete_car(car_id: int, db: Session = Depends(get_db)):
-    car = db.query(Car).filter(Car.id == car_id).first()
-    if car:
-        db.delete(car)
-        db.commit()
-    return {"message": "Видалено з бази."}
+def delete_car(
+    car_id: int,
+    db: Session = Depends(get_db)
+):
+    car = db.query(Car).filter(
+        Car.id == car_id
+    ).first()
+
+    if not car:
+        raise HTTPException(
+            status_code=404,
+            detail="Автомобіль не знайдено."
+        )
+
+    pending = db.query(Booking.id).filter(
+        Booking.car_id == car_id,
+        Booking.status == "pending"
+    ).first()
+
+    if pending:
+        raise HTTPException(
+            status_code=409,
+            detail="Спочатку підтвердіть або відхиліть активне бронювання."
+        )
+
+    car.is_deleted = True
+    car.is_archived = True
+
+    db.commit()
+
+    return {
+        "message": "Автомобіль приховано. Історію покупок збережено.",
+        "car_id": car.id
+    }
 
 @app.get("/api/bookings")
-def get_bookings(db: Session = Depends(get_db)):
-    bookings = db.query(Booking).all()
-    return [{
-        "id": b.id,
-        "user_email": b.user_email,
-        "car_id": b.car_id,
-        "phone": b.phone,
-        "comment": b.comment,
-        "status": b.status
-    } for b in bookings]
+def get_bookings(
+    db: Session = Depends(get_db)
+):
+    bookings = db.query(Booking).order_by(
+        Booking.id.desc()
+    ).all()
 
-@app.post("/api/bookings")
-def create_booking(data: BookingCreate, db: Session = Depends(get_db)):
-    new_booking = Booking(
-        user_email=data.user_email,
-        car_id=data.car_id,
-        phone=data.phone,
-        comment=data.comment,
-        status="pending"
+    return [
+        booking_payload(booking)
+        for booking in bookings
+    ]
+
+
+@app.get("/api/users/{email}/bookings")
+def user_bookings(
+    email: str,
+    db: Session = Depends(get_db)
+):
+    rows = (
+        db.query(Booking, Car)
+        .join(Car, Booking.car_id == Car.id)
+        .filter(Booking.user_email == email)
+        .order_by(Booking.id.desc())
+        .all()
     )
-    db.add(new_booking)
-    db.commit()
-    return {"message": "Бронювання успішно створено!"}
+
+    return [
+        {
+            **booking_payload(booking),
+            "car_title": f"{car.brand} {car.model}",
+            "image_url": car.image_url,
+            "car_price": car.price
+        }
+        for booking, car in rows
+    ]
+
+
+@app.post("/api/bookings", status_code=201)
+def create_booking(
+    data: BookingCreate,
+    db: Session = Depends(get_db)
+):
+    validated_phone = validate_booking_phone(data.phone)
+
+    try:
+        car = (
+            db.query(Car)
+            .filter(Car.id == data.car_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not car:
+            raise HTTPException(
+                status_code=404,
+                detail="Автомобіль не знайдено."
+            )
+
+        if car.is_archived:
+            raise HTTPException(
+                status_code=409,
+                detail="Автомобіль знаходиться в архіві."
+            )
+
+        existing = (
+            db.query(Booking.id)
+            .filter(
+                Booking.car_id == car.id,
+                Booking.status == "pending"
+            )
+            .first()
+        )
+
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail="Цей автомобіль уже заброньовано."
+            )
+
+        user = db.query(User).filter(
+            User.email == data.user_email
+        ).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="Користувача не знайдено."
+            )
+
+        booking = Booking(
+            user_email=user.email,
+            car_id=car.id,
+            phone=validated_phone,
+            comment=data.comment or "",
+            status="pending",
+            created_at=datetime.utcnow(),
+            decided_at=None,
+            purchase_price=None
+        )
+
+        db.add(booking)
+        db.commit()
+        db.refresh(booking)
+
+        return booking_payload(booking)
+
+    except Exception:
+        db.rollback()
+        raise
+
 
 @app.put("/api/admin/bookings/{booking_id}")
-def update_booking_status(booking_id: int, status_data: dict, db: Session = Depends(get_db)):
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
-    if not booking:
-        raise HTTPException(status_code=404, detail="Бронювання не знайдено")
-    booking.status = status_data.get("status", booking.status)
-    db.commit()
-    return {"message": "Статус бронювання оновлено!"}
+def update_booking_status(
+    booking_id: int,
+    status_data: BookingStatusUpdate,
+    db: Session = Depends(get_db)
+):
+    if status_data.status not in ("approved", "rejected"):
+        raise HTTPException(
+            status_code=400,
+            detail="Невірний статус бронювання."
+        )
+
+    try:
+        target = db.query(Booking).filter(
+            Booking.id == booking_id
+        ).first()
+
+        if not target:
+            raise HTTPException(
+                status_code=404,
+                detail="Бронювання не знайдено."
+            )
+
+        car = (
+            db.query(Car)
+            .filter(Car.id == target.car_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not car:
+            raise HTTPException(
+                status_code=404,
+                detail="Автомобіль не знайдено."
+            )
+
+        booking = (
+            db.query(Booking)
+            .filter(Booking.id == booking_id)
+            .with_for_update()
+            .first()
+        )
+
+        if booking.status != "pending":
+            raise HTTPException(
+                status_code=409,
+                detail="Рішення за заявкою вже прийнято."
+            )
+
+        if status_data.status == "approved":
+            if car.is_archived:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Автомобіль уже знаходиться в архіві."
+                )
+
+            booking.status = "approved"
+            booking.decided_at = datetime.utcnow()
+            booking.purchase_price = float(car.price)
+
+            car.is_archived = True
+
+        else:
+            booking.status = "rejected"
+            booking.decided_at = datetime.utcnow()
+            booking.purchase_price = None
+
+        db.commit()
+        db.refresh(booking)
+
+        return booking_payload(booking)
+
+    except Exception:
+        db.rollback()
+        raise
+
+
+@app.put("/api/admin/cars/{car_id}/archive")
+def set_car_archive(
+    car_id: int,
+    data: ArchiveToggle,
+    db: Session = Depends(get_db)
+):
+    try:
+        car = (
+            db.query(Car)
+            .filter(Car.id == car_id)
+            .with_for_update()
+            .first()
+        )
+
+        if not car:
+            raise HTTPException(
+                status_code=404,
+                detail="Автомобіль не знайдено."
+            )
+
+        car.is_archived = data.is_archived
+
+        if not data.is_archived:
+            pending_bookings = (
+                db.query(Booking)
+                .filter(
+                    Booking.car_id == car.id,
+                    Booking.status == "pending"
+                )
+                .with_for_update()
+                .all()
+            )
+
+            for booking in pending_bookings:
+                booking.status = "rejected"
+                booking.decided_at = datetime.utcnow()
+                booking.purchase_price = None
+
+        db.commit()
+
+        return {
+            "message": (
+                "Автомобіль переміщено в архів."
+                if data.is_archived
+                else "Автомобіль повернуто в каталог."
+            ),
+            "car_id": car.id,
+            "is_archived": bool(car.is_archived),
+            "booking_status": None
+        }
+
+    except Exception:
+        db.rollback()
+        raise
+
 
 @app.delete("/api/admin/bookings/{booking_id}")
-def delete_booking(booking_id: int, db: Session = Depends(get_db)):
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
-    if booking:
-        db.delete(booking)
-        db.commit()
-    return {"message": "Бронювання видалено з бази."}
+def delete_booking(
+    booking_id: int,
+    db: Session = Depends(get_db)
+):
+    booking = db.query(Booking).filter(
+        Booking.id == booking_id
+    ).first()
+
+    if not booking:
+        raise HTTPException(
+            status_code=404,
+            detail="Бронювання не знайдено."
+        )
+
+    if booking.status == "approved":
+        raise HTTPException(
+            status_code=409,
+            detail="Підтверджену покупку не можна видаляти."
+        )
+
+    db.delete(booking)
+    db.commit()
+
+    return {"message": "Бронювання видалено."}
+
 
 @app.get("/api/reviews")
-def get_reviews(db: Session = Depends(get_db)):
+def get_reviews(
+    db: Session = Depends(get_db)
+):
     return db.query(Review).all()
 
+
 @app.post("/api/reviews")
-def add_review(data: ReviewCreate, db: Session = Depends(get_db)):
-    new_rev = Review(**data.dict())
-    db.add(new_rev)
+def add_review(
+    data: ReviewCreate,
+    db: Session = Depends(get_db)
+):
+    if data.rating < 1 or data.rating > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Оцінка має бути від 1 до 5."
+        )
+
+    review = Review(
+        author=data.author,
+        comment=data.comment,
+        rating=data.rating
+    )
+
+    db.add(review)
     db.commit()
+
     return {"message": "Відгук додано!"}
 
 
-# ===================== ФОРУМ =====================
-
 @app.get("/api/forum")
-def get_forum(db: Session = Depends(get_db)):
-    msgs = db.query(ForumMessage).order_by(ForumMessage.created_at.asc()).all()
+def get_forum(
+    db: Session = Depends(get_db)
+):
+    messages = db.query(ForumMessage).order_by(
+        ForumMessage.created_at.asc()
+    ).all()
 
-    # Аватарки беремо з таблиці користувачів, щоб не зберігати base64 у кожному повідомленні
-    emails = {m.user_email for m in msgs}
-    users = db.query(User).filter(User.email.in_(emails)).all() if emails else []
-    avatars = {u.email: (u.avatar_url or "") for u in users}
-
-    return {
-        "messages": [{
-            "id": m.id,
-            "parent_id": m.parent_id,
-            "user_email": m.user_email,
-            "author": m.author,
-            "message": m.message,
-            "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
-        } for m in msgs],
-        "avatars": avatars,
+    emails = {
+        message.user_email
+        for message in messages
     }
 
+    users = (
+        db.query(User)
+        .filter(User.email.in_(emails))
+        .all()
+        if emails
+        else []
+    )
+
+    avatars = {
+        user.email: user.avatar_url or ""
+        for user in users
+    }
+
+    return {
+        "messages": [
+            {
+                "id": message.id,
+                "parent_id": message.parent_id,
+                "user_email": message.user_email,
+                "author": message.author,
+                "message": message.message,
+                "created_at": (
+                    message.created_at.isoformat() + "Z"
+                    if message.created_at
+                    else None
+                )
+            }
+            for message in messages
+        ],
+        "avatars": avatars
+    }
+
+
 @app.post("/api/forum")
-def post_forum(data: ForumCreate, db: Session = Depends(get_db)):
-    # Писати можуть лише зареєстровані користувачі
-    user = db.query(User).filter(User.email == data.email).first()
+def post_forum(
+    data: ForumCreate,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.email == data.email
+    ).first()
+
     if not user:
-        raise HTTPException(status_code=403, detail="Писати у форум можуть лише зареєстровані користувачі.")
+        raise HTTPException(
+            status_code=403,
+            detail="Лише зареєстровані користувачі можуть писати у форум."
+        )
 
     text = (data.message or "").strip()
+
     if not text:
-        raise HTTPException(status_code=400, detail="Повідомлення порожнє.")
+        raise HTTPException(
+            status_code=400,
+            detail="Повідомлення порожнє."
+        )
+
     if len(text) > 1000:
-        raise HTTPException(status_code=400, detail="Максимум 1000 символів.")
+        raise HTTPException(
+            status_code=400,
+            detail="Максимум 1000 символів."
+        )
 
     if data.parent_id is not None:
-        parent = db.query(ForumMessage).filter(ForumMessage.id == data.parent_id).first()
-        if not parent:
-            raise HTTPException(status_code=404, detail="Повідомлення, на яке ви відповідаєте, не знайдено.")
+        parent = db.query(ForumMessage).filter(
+            ForumMessage.id == data.parent_id
+        ).first()
 
-    msg = ForumMessage(
+        if not parent:
+            raise HTTPException(
+                status_code=404,
+                detail="Повідомлення, на яке ви відповідаєте, не знайдено."
+            )
+
+    message = ForumMessage(
         parent_id=data.parent_id,
         user_email=user.email,
         author=user.display_name,
-        message=text,
+        message=text
     )
-    db.add(msg)
+
+    db.add(message)
     db.commit()
-    db.refresh(msg)
-    return {"message": "Повідомлення додано!", "id": msg.id}
+    db.refresh(message)
+
+    return {
+        "message": "Повідомлення додано!",
+        "id": message.id
+    }
+
 
 @app.delete("/api/forum/{message_id}")
-def delete_forum_message(message_id: int, email: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == email).first()
-    msg = db.query(ForumMessage).filter(ForumMessage.id == message_id).first()
-    if not user or not msg:
-        raise HTTPException(status_code=404, detail="Не знайдено.")
-    if msg.user_email != user.email and not user.is_admin:
-        raise HTTPException(status_code=403, detail="Можна видаляти лише свої повідомлення.")
+def delete_forum_message(
+    message_id: int,
+    email: str,
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(
+        User.email == email
+    ).first()
 
-    # Видаляємо повідомлення разом з усіма відповідями
-    to_delete = [msg.id]
-    queue = [msg.id]
+    message = db.query(ForumMessage).filter(
+        ForumMessage.id == message_id
+    ).first()
+
+    if not user or not message:
+        raise HTTPException(
+            status_code=404,
+            detail="Не знайдено."
+        )
+
+    if message.user_email != user.email and not user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Можна видаляти лише свої повідомлення."
+        )
+
+    to_delete = [message.id]
+    queue = [message.id]
+
     while queue:
-        children = db.query(ForumMessage).filter(ForumMessage.parent_id.in_(queue)).all()
-        queue = [c.id for c in children]
+        children = db.query(ForumMessage).filter(
+            ForumMessage.parent_id.in_(queue)
+        ).all()
+
+        queue = [
+            child.id
+            for child in children
+        ]
+
         to_delete.extend(queue)
 
-    db.query(ForumMessage).filter(ForumMessage.id.in_(to_delete)).delete(synchronize_session=False)
+    db.query(ForumMessage).filter(
+        ForumMessage.id.in_(to_delete)
+    ).delete(synchronize_session=False)
+
     db.commit()
+
     return {"message": "Видалено."}

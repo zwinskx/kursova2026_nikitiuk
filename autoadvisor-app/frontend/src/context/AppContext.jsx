@@ -1,28 +1,60 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect
+} from 'react';
+
 import { t } from '../constants/translations';
 
 const AppContext = createContext(null);
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+const emptyPersonalData = () => ({
+  saved: [],
+  booked: [],
+  recent: [],
+  bookingsDetails: {}
+});
 
 export function AppProvider({ children }) {
   const [activeTab, setActiveTab] = useState('overview');
 
-  const [lang, setLang] = useState(() => localStorage.getItem('autoadvisor_lang') || 'ua');
-  const [currency, setCurrency] = useState(() => localStorage.getItem('autoadvisor_currency') || 'USD');
-  const [distanceUnit, setDistanceUnit] = useState(() => localStorage.getItem('autoadvisor_distance') || 'mi');
+  const [lang, setLang] = useState(
+    () => localStorage.getItem('autoadvisor_lang') || 'ua'
+  );
+
+  const [currency, setCurrency] = useState(
+    () => localStorage.getItem('autoadvisor_currency') || 'USD'
+  );
+
+  const [distanceUnit, setDistanceUnit] = useState(
+    () => localStorage.getItem('autoadvisor_distance') || 'mi'
+  );
 
   const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem('autoadvisor_user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    try {
+      const saved = localStorage.getItem('autoadvisor_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [savedAccounts, setSavedAccounts] = useState(() => {
-    const saved = localStorage.getItem('autoadvisor_accounts');
-    return saved ? JSON.parse(saved) : (user ? [user] : []);
+    try {
+      const saved = localStorage.getItem('autoadvisor_accounts');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [isAccountSwitcherOpen, setIsAccountSwitcherOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
+
   const [emailInput, setEmailInput] = useState('');
   const [passInput, setPassInput] = useState('');
   const [nameInput, setNameInput] = useState('');
@@ -33,6 +65,7 @@ export function AppProvider({ children }) {
   const [settingsLang, setSettingsLang] = useState(lang);
   const [settingsCurrency, setSettingsCurrency] = useState(currency);
   const [settingsDistance, setSettingsDistance] = useState(distanceUnit);
+
   const [emailAlerts, setEmailAlerts] = useState(user?.email_alerts ?? true);
   const [deliveryFreq, setDeliveryFreq] = useState('Daily digest');
   const [minLiquidity, setMinLiquidity] = useState(85);
@@ -57,6 +90,8 @@ export function AppProvider({ children }) {
 
   const [cars, setCars] = useState([]);
   const [adminBookings, setAdminBookings] = useState([]);
+  const [myBookings, setMyBookings] = useState([]);
+
   const [selectedCarForModal, setSelectedCarForModal] = useState(null);
   const [isFullComparisonOpen, setIsFullComparisonOpen] = useState(false);
 
@@ -65,14 +100,19 @@ export function AppProvider({ children }) {
   const [newCarMileageUnit, setNewCarMileageUnit] = useState('mi');
 
   const [userPersonalData, setUserPersonalData] = useState(() => {
-    const savedData = localStorage.getItem('autoadvisor_personal_data');
-    return savedData ? JSON.parse(savedData) : {};
+    try {
+      const saved = localStorage.getItem('autoadvisor_personal_data');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
   });
 
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [carToBook, setCarToBook] = useState(null);
   const [bookingPhone, setBookingPhone] = useState('');
   const [bookingComment, setBookingComment] = useState('');
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
 
   const [reviews, setReviews] = useState([]);
   const [currentReviewIdx, setCurrentReviewIdx] = useState(0);
@@ -88,9 +128,39 @@ export function AppProvider({ children }) {
 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState([
-    { sender: 'bot', text: lang === 'ua' ? 'Привіт! Я AI-помічник AutoAdvisor. Чим можу допомогти з вибором авто?' : 'Hello! I am your AutoAdvisor AI assistant. How can I help you choose a car?' }
+    {
+      sender: 'bot',
+      text: lang === 'ua'
+        ? 'Привіт! Я AI-помічник AutoAdvisor. Чим можу допомогти з вибором авто?'
+        : 'Hello! I am your AutoAdvisor AI assistant. How can I help you choose a car?'
+    }
   ]);
   const [chatInput, setChatInput] = useState('');
+  const [isAiTyping, setIsAiTyping] = useState(false);
+
+  const [forumMessages, setForumMessages] = useState([]);
+  const [forumAvatars, setForumAvatars] = useState({});
+  const [forumInput, setForumInput] = useState('');
+
+  const initialNewCarState = {
+    brand: '',
+    model: '',
+    year: '',
+    body_type: 'Sedan',
+    transmission: 'Automatic',
+    mileage: '',
+    price: '',
+    engine_volume: '2.0L',
+    custom_liquidity: 85,
+    badge: '',
+    image_url: '',
+    images: [],
+    description: ''
+  };
+
+  const [newCar, setNewCar] = useState(initialNewCarState);
+
+  const currentText = t[lang] || t.ua;
 
   useEffect(() => {
     localStorage.setItem('autoadvisor_lang', lang);
@@ -99,105 +169,94 @@ export function AppProvider({ children }) {
   }, [lang, currency, distanceUnit]);
 
   useEffect(() => {
-    if (user) {
-      localStorage.setItem('autoadvisor_user', JSON.stringify(user));
-      setSavedAccounts(prev => {
-        const exists = prev.some(acc => acc.email === user.email);
-        const updated = exists ? prev.map(acc => acc.email === user.email ? user : acc) : [...prev, user];
-        localStorage.setItem('autoadvisor_accounts', JSON.stringify(updated));
-        return updated;
-      });
-    } else {
+    if (!user) {
       localStorage.removeItem('autoadvisor_user');
+      return;
     }
+
+    localStorage.setItem('autoadvisor_user', JSON.stringify(user));
+
+    setSavedAccounts(prev => {
+      const updated = prev.some(acc => acc.email === user.email)
+        ? prev.map(acc => acc.email === user.email ? user : acc)
+        : [...prev, user];
+
+      localStorage.setItem(
+        'autoadvisor_accounts',
+        JSON.stringify(updated)
+      );
+
+      return updated;
+    });
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem('autoadvisor_personal_data', JSON.stringify(userPersonalData));
+    localStorage.setItem(
+      'autoadvisor_personal_data',
+      JSON.stringify(userPersonalData)
+    );
   }, [userPersonalData]);
 
   useEffect(() => {
     if (reviews.length <= 3 || showAllReviews || isPaused) return;
+
     const interval = setInterval(() => {
-      setCurrentReviewIdx(prev => (prev === 0 ? 3 : 0));
+      setCurrentReviewIdx(prev => prev === 0 ? 3 : 0);
     }, 5000);
+
     return () => clearInterval(interval);
   }, [reviews.length, showAllReviews, isPaused]);
 
-  const initialNewCarState = {
-    brand: '', model: '', year: '', body_type: 'Sedan', transmission: 'Automatic',
-    mileage: '', price: '', engine_volume: '2.0L', custom_liquidity: 85, badge: '',
-    image_url: '',
-    description: ''
-  };
-
-  const [newCar, setNewCar] = useState(initialNewCarState);
-
-  const currentText = t[lang];
-
-  const fetchCars = () => {
-    fetch(`http://127.0.0.1:8000/api/recommendations?budget_max=${appliedFilters.budget}&brand=${appliedFilters.brand}&body_type=${appliedFilters.body}&transmission=${appliedFilters.transmission}&min_liquidity=${appliedFilters.minLiquidity}`)
-      .then(res => res.json())
-      .then(data => {
-        setCars(data);
-        if (data.length >= 2) {
-          if (!compareCar1) setCompareCar1(data[0]);
-          if (!compareCar2) setCompareCar2(data[1]);
-        }
-      })
-      .catch(() => {});
-  };
-
-  const fetchReviews = () => {
-    fetch('http://127.0.0.1:8000/api/reviews')
-      .then(res => res.json())
-      .then(data => setReviews(data))
-      .catch(() => {});
-  };
-
-  const fetchAdminBookings = () => {
-    fetch('http://127.0.0.1:8000/api/bookings')
-      .then(res => res.json())
-      .then(data => setAdminBookings(data))
-      .catch(() => {});
-  };
-
   useEffect(() => {
-    fetchCars();
-    fetchReviews();
-    if (user?.is_admin) {
-      fetchAdminBookings();
-    }
-  }, [appliedFilters, user]);
+    if (!user) return;
 
-  useEffect(() => {
-    if (user) {
-      setSettingsName(user.display_name);
-      setSettingsAvatar(user.avatar_url || '');
-      setEmailAlerts(user.email_alerts ?? true);
-      setDeliveryFreq(user.delivery_frequency ?? 'Daily digest');
-      setMinLiquidity(user.min_liquidity ?? 85);
+    setSettingsName(user.display_name || '');
+    setSettingsAvatar(user.avatar_url || '');
+    setEmailAlerts(user.email_alerts ?? true);
+    setDeliveryFreq(user.delivery_frequency || 'Daily digest');
+    setMinLiquidity(user.min_liquidity ?? 85);
 
-      setUserPersonalData(prev => {
-        if (!prev[user.email]) {
-          return {
-            ...prev,
-            [user.email]: { saved: [], booked: [], recent: [], bookingsDetails: {} }
-          };
-        }
-        return prev;
-      });
-    }
+    setUserPersonalData(prev => {
+      if (prev[user.email]) return prev;
+
+      return {
+        ...prev,
+        [user.email]: emptyPersonalData()
+      };
+    });
   }, [user]);
 
-  const currentUserData = user && userPersonalData[user.email]
-    ? userPersonalData[user.email]
-    : { saved: [], booked: [], recent: [], bookingsDetails: {} };
+const storedUserData = user
+  ? userPersonalData[user.email] || emptyPersonalData()
+  : emptyPersonalData();
+
+const pendingUserBookings = myBookings.filter(
+  booking => booking.status === 'pending'
+);
+
+const pendingCarIds = pendingUserBookings.map(
+  booking => Number(booking.car_id)
+);
+
+const currentUserData = {
+  ...storedUserData,
+
+  saved: [
+    ...new Set([
+      ...(storedUserData.saved || []),
+      ...pendingCarIds
+    ].map(Number))
+  ],
+
+  booked: pendingCarIds
+};
 
   const updateCurrentUserData = (updater) => {
     if (!user) return;
+
     setUserPersonalData(prev => {
-      const current = prev[user.email] || { saved: [], booked: [], recent: [], bookingsDetails: {} };
+      const current = prev[user.email] || emptyPersonalData();
+
       return {
         ...prev,
         [user.email]: updater(current)
@@ -205,30 +264,241 @@ export function AppProvider({ children }) {
     });
   };
 
+  const fetchCars = async () => {
+    const params = new URLSearchParams({
+      budget_max: String(appliedFilters.budget),
+      brand: appliedFilters.brand,
+      body_type: appliedFilters.body,
+      transmission: appliedFilters.transmission,
+      min_liquidity: String(appliedFilters.minLiquidity)
+    });
+
+    try {
+      const response = await fetch(
+        `${API}/api/recommendations?${params}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Catalog HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid catalog data');
+      }
+
+      const sorted = [...data].sort(
+        (a, b) =>
+          Number(Boolean(a.is_archived)) -
+          Number(Boolean(b.is_archived)) ||
+          a.id - b.id
+      );
+
+      setCars(sorted);
+
+      setSelectedCarForModal(prev =>
+        prev
+          ? sorted.find(car => car.id === prev.id) || prev
+          : null
+      );
+
+      setCompareCar1(prev =>
+        prev
+          ? sorted.find(car => car.id === prev.id) || prev
+          : sorted[0] || null
+      );
+
+      setCompareCar2(prev =>
+        prev
+          ? sorted.find(car => car.id === prev.id) || prev
+          : sorted[1] || null
+      );
+
+      return sorted;
+    } catch (error) {
+      console.error('Failed to load cars:', error);
+      return [];
+    }
+  };
+
+  const fetchReviews = async () => {
+    try {
+      const response = await fetch(`${API}/api/reviews`);
+
+      if (!response.ok) throw new Error('Reviews loading error');
+
+      setReviews(await response.json());
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const fetchAdminBookings = async () => {
+    try {
+      const response = await fetch(`${API}/api/bookings`);
+
+      if (!response.ok) {
+        throw new Error(`Bookings HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      setAdminBookings(Array.isArray(data) ? data : []);
+
+      return data;
+    } catch (error) {
+      console.error('Admin bookings error:', error);
+      return [];
+    }
+  };
+
+  const fetchMyBookings = async () => {
+    if (!user?.email) {
+      setMyBookings([]);
+      return [];
+    }
+
+    try {
+      const response = await fetch(
+        `${API}/api/users/${encodeURIComponent(user.email)}/bookings`
+      );
+
+      if (!response.ok) {
+        throw new Error(`My bookings HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      setMyBookings(Array.isArray(data) ? data : []);
+
+      return data;
+    } catch (error) {
+      console.error('My bookings error:', error);
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    fetchCars();
+    fetchReviews();
+    fetchMyBookings();
+
+    if (user?.is_admin) {
+      fetchAdminBookings();
+    } else {
+      setAdminBookings([]);
+    }
+  }, [appliedFilters, user?.email, user?.is_admin]);
+
+  useEffect(() => {
+    const sync = () => {
+      fetchCars();
+      fetchMyBookings();
+
+      if (user?.is_admin) {
+        fetchAdminBookings();
+      }
+    };
+
+    const interval = setInterval(sync, 5000);
+
+    window.addEventListener('focus', sync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', sync);
+    };
+  }, [appliedFilters, user?.email, user?.is_admin]);
+
+  useEffect(() => {
+    if (!user || cars.length === 0) return;
+
+    const f = appliedFilters;
+
+    const isUnfiltered =
+      Number(f.budget) >= 150000 &&
+      f.brand === 'All' &&
+      f.body === 'Any' &&
+      f.transmission === 'Any' &&
+      Number(f.minLiquidity) === 0;
+
+    if (!isUnfiltered) return;
+
+    const ids = new Set(cars.map(car => car.id));
+
+    setUserPersonalData(prev => {
+      const data = prev[user.email] || emptyPersonalData();
+
+      const saved = data.saved.filter(id => ids.has(id));
+      const recent = data.recent.filter(id => ids.has(id));
+
+      const bookingsDetails = Object.fromEntries(
+        Object.entries(data.bookingsDetails || {})
+          .filter(([id]) => ids.has(Number(id)))
+      );
+
+      if (
+        saved.length === data.saved.length &&
+        recent.length === data.recent.length
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [user.email]: {
+          ...data,
+          saved,
+          recent,
+          bookingsDetails
+        }
+      };
+    });
+  }, [cars, user?.email, appliedFilters]);
+
   const formatPrice = (priceInUSD) => {
-    if (!priceInUSD) return '$0';
+    const price = Number(priceInUSD) || 0;
+
     let rate = 1;
     let symbol = '$';
-    if (currency === 'EUR') { rate = 0.92; symbol = '€'; }
-    if (currency === 'UAH') { rate = 41.5; symbol = '₴'; }
-    const converted = Math.round(priceInUSD * rate);
+
+    if (currency === 'EUR') {
+      rate = 0.92;
+      symbol = '€';
+    }
+
+    if (currency === 'UAH') {
+      rate = 41.5;
+      symbol = '₴';
+    }
+
+    const converted = Math.round(price * rate);
+
     return `${converted.toLocaleString()} ${symbol}`;
   };
 
-  // Ціна зі знижкою (discount — відсоток від 0 до 90)
   const getFinalPrice = (car) => {
-    const d = Number(car?.discount) || 0;
-    if (!car?.price || d <= 0) return car?.price;
-    return Math.round(car.price * (1 - d / 100));
+    const price = Number(car?.price) || 0;
+    const discount = Number(car?.discount) || 0;
+
+    return Math.round(price * (1 - discount / 100));
   };
 
   const formatMileage = (mileageInMiles) => {
     if (typeof mileageInMiles !== 'number') return mileageInMiles;
+
     if (distanceUnit === 'km') {
       const km = Math.round(mileageInMiles * 1.60934);
-      return `${km.toLocaleString()} ${lang === 'ua' ? 'км' : 'km'}`;
+
+      return `${km.toLocaleString()} ${
+        lang === 'ua' ? 'км' : 'km'
+      }`;
     }
-    return `${mileageInMiles.toLocaleString()} ${lang === 'ua' ? 'миль' : 'mi'}`;
+
+    return `${mileageInMiles.toLocaleString()} ${
+      lang === 'ua' ? 'миль' : 'mi'
+    }`;
   };
 
   const handleApplyFilters = () => {
@@ -241,405 +511,868 @@ export function AppProvider({ children }) {
     });
   };
 
-  const totalDbCars = cars.length > 0 ? cars.length * 42 + 84 : 24892;
-  const calculatedAvgPrice = cars.length > 0
-    ? Math.round(cars.reduce((acc, c) => acc + c.price, 0) / cars.length)
-    : 31420;
-  const calculatedLiquidityAvg = cars.length > 0
-    ? (cars.reduce((acc, c) => acc + c.liquidity_score, 0) / cars.length).toFixed(1)
-    : '74.8';
-  const savedVehiclesObjects = cars.filter(c => currentUserData.saved.includes(c.id));
-  const calculatedSavedValue = savedVehiclesObjects.reduce((acc, c) => acc + c.price, 0) || (currentUserData.saved.length * 45000);
+  const totalDbCars =
+    cars.length > 0 ? cars.length * 42 + 84 : 24892;
 
-  const handleAuth = (e) => {
+  const calculatedAvgPrice =
+    cars.length > 0
+      ? Math.round(
+          cars.reduce((sum, car) => sum + Number(car.price), 0) /
+          cars.length
+        )
+      : 31420;
+
+  const calculatedLiquidityAvg =
+    cars.length > 0
+      ? (
+          cars.reduce(
+            (sum, car) => sum + Number(car.liquidity_score || 0),
+            0
+          ) / cars.length
+        ).toFixed(1)
+      : '74.8';
+
+  const savedVehiclesObjects = cars.filter(
+    car => currentUserData.saved.includes(car.id)
+  );
+
+  const purchasedCars = myBookings.filter(
+    booking => booking.status === 'approved'
+  );
+
+  const calculatedSavedValue = purchasedCars.reduce(
+    (sum, booking) =>
+      sum + Number(
+        booking.purchase_price ??
+        booking.car_price ??
+        0
+      ),
+    0
+  );
+
+  const handleAuth = async (e) => {
     e.preventDefault();
+
     if (authMode === 'register' && passInput.length < 8) {
-      alert(lang === 'ua' ? 'Пароль має містити мінімум 8 символів!' : 'Password must be at least 8 characters!');
+      alert(
+        lang === 'ua'
+          ? 'Пароль має містити мінімум 8 символів!'
+          : 'Password must be at least 8 characters!'
+      );
       return;
     }
 
-    const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
-    const body = authMode === 'login'
-      ? { email: emailInput, password: passInput }
-      : { email: emailInput, password: passInput, display_name: nameInput };
+    const endpoint =
+      authMode === 'login' ? '/api/login' : '/api/register';
 
-    fetch(`http://127.0.0.1:8000${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    })
-    .then(res => res.json().then(data => ({ status: res.status, body: data })))
-    .then(res => {
-      if (res.status === 200) {
-        setUser(res.body);
-        setIsAuthModalOpen(false);
-        alert(res.body.message);
-      } else {
-        alert(res.body.detail || (lang === 'ua' ? 'Помилка автентифікації' : 'Auth error'));
+    const payload =
+      authMode === 'login'
+        ? { email: emailInput, password: passInput }
+        : {
+            email: emailInput,
+            password: passInput,
+            display_name: nameInput
+          };
+
+    try {
+      const response = await fetch(`${API}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Authentication error');
       }
-    })
-    .catch(() => alert(lang === 'ua' ? 'Помилка підключення до сервера.' : 'Server connection error.'));
+
+      setUser(data);
+      setIsAuthModalOpen(false);
+      setPassInput('');
+
+      alert(data.message || 'Success');
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
-  const handleSavePreferences = (e) => {
+  const handleSavePreferences = async (e) => {
     e.preventDefault();
+
     if (!user) return;
-    if (newPass && newPass !== confirmNewPass) {
-      alert(lang === 'ua' ? 'Нові паролі не збігаються!' : 'New passwords do not match!');
+
+    if (newPass !== confirmNewPass) {
+      alert(
+        lang === 'ua'
+          ? 'Нові паролі не збігаються!'
+          : 'New passwords do not match!'
+      );
       return;
     }
 
-    setLang(settingsLang);
-    setCurrency(settingsCurrency);
-    setDistanceUnit(settingsDistance);
+    try {
+      const response = await fetch(
+        `${API}/api/user/${user.user_id || user.id}/preferences`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: settingsName.trim(),
+            avatar_url: settingsAvatar,
+            email_alerts: emailAlerts,
+            delivery_frequency: deliveryFreq,
+            min_liquidity: Number(minLiquidity),
+            ...(newPass
+              ? {
+                  current_password: currentPass,
+                  new_password: newPass
+                }
+              : {})
+          })
+        }
+      );
 
-    fetch(`http://127.0.0.1:8000/api/user/${user.user_id || user.id}/preferences`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        display_name: settingsName,
-        avatar_url: settingsAvatar, // Зберігаємо посилання або base64 рядок у БД
-        email_alerts: emailAlerts,
-        delivery_frequency: deliveryFreq,
-        min_liquidity: Number(minLiquidity),
-        ...(newPass ? { current_password: currentPass, new_password: newPass } : {})
-      })
-    })
-    .then(res => res.json().then(data => ({ status: res.status, body: data })))
-    .then(res => {
-      if (res.status === 200) {
-        const updatedUser = {
-          ...user,
-          display_name: settingsName,
-          avatar_url: settingsAvatar,
-          email_alerts: emailAlerts,
-          delivery_frequency: deliveryFreq,
-          min_liquidity: minLiquidity
-        };
-        setUser(updatedUser);
-        setIsSettingsOpen(false);
-        alert(res.body.message || (lang === 'ua' ? 'Налаштування успішно збережено!' : 'Preferences saved successfully!'));
-        setCurrentPass('');
-        setNewPass('');
-        setConfirmNewPass('');
-      } else {
-        alert(res.body.detail || (lang === 'ua' ? 'Помилка збереження налаштувань' : 'Error saving settings'));
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Save failed');
       }
-    })
-    .catch(() => {
-      const updatedUser = { ...user, display_name: settingsName, avatar_url: settingsAvatar, email_alerts: emailAlerts };
-      setUser(updatedUser);
+
+      setUser(prev => ({
+        ...prev,
+        ...data.user,
+        user_id: prev.user_id || prev.id
+      }));
+
+      setLang(settingsLang);
+      setCurrency(settingsCurrency);
+      setDistanceUnit(settingsDistance);
+
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmNewPass('');
       setIsSettingsOpen(false);
-      alert(lang === 'ua' ? 'Налаштування успішно застосовано!' : 'Preferences applied successfully!');
+
+      alert(
+        data.message ||
+        (lang === 'ua'
+          ? 'Налаштування збережено!'
+          : 'Preferences saved!')
+      );
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
+  const readImage = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     });
-  };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setNewCar(prev => ({ ...prev, image_url: reader.result }));
-      };
-      reader.readAsDataURL(file);
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+
+    if (!files.length) return;
+
+    if (
+      files.some(
+        file =>
+          !file.type.startsWith('image/') ||
+          file.size > 3 * 1024 * 1024
+      )
+    ) {
+      alert('Кожне фото має бути зображенням до 3 MB');
+      return;
+    }
+
+    try {
+      const urls = await Promise.all(files.map(readImage));
+
+      setNewCar(prev => {
+        const images = [
+          ...(prev.images || []),
+          ...urls
+        ].slice(0, 8);
+
+        return {
+          ...prev,
+          images,
+          image_url: images[0] || ''
+        };
+      });
+    } catch (error) {
+      alert('Помилка завантаження фотографій.');
+    } finally {
+      e.target.value = '';
     }
   };
 
-  const handleAvatarUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSettingsAvatar(reader.result);
-      };
-      reader.readAsDataURL(file);
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    try {
+      setSettingsAvatar(await readImage(file));
+    } catch {
+      alert('Помилка завантаження аватара.');
     }
   };
 
-  const handleAddCar = (e) => {
+  const handleAddCar = async (e) => {
     e.preventDefault();
 
-    let rawMileage = newCar.mileage !== '' ? Number(newCar.mileage) : 0;
+    let rawMileage = Number(newCar.mileage) || 0;
+
     if (newCarMileageUnit === 'km') {
       rawMileage = Math.round(rawMileage / 1.60934);
     }
 
+    const images = newCar.images?.length
+      ? newCar.images
+      : [newCar.image_url].filter(Boolean);
+
     const payload = {
       ...newCar,
+      images,
+      image_url: images[0] || '',
       mileage: rawMileage
     };
 
-    fetch('http://127.0.0.1:8000/api/admin/cars', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-      alert(lang === 'ua' ? 'Автомобіль успішно додано в базу та надіслано email-розсилку підписникам!' : (data.message || 'Auto added & emails sent!'));
+    try {
+      const response = await fetch(`${API}/api/admin/cars`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to add car');
+      }
+
+      alert(
+        lang === 'ua'
+          ? 'Автомобіль успішно додано в базу!'
+          : 'Vehicle added successfully!'
+      );
+
       setNewCar(initialNewCarState);
-      fetchCars();
-    })
-    .catch(() => alert(lang === 'ua' ? 'Помилка при додаванні автомобіля.' : 'Error adding car.'));
+      await fetchCars();
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
-  const handleUpdateCar = (e) => {
+  const handleUpdateCar = async (e) => {
     e.preventDefault();
+
     if (!editingCar) return;
 
-    let rawMileage = editingCar.mileage !== '' ? Number(editingCar.mileage) : 0;
+    let rawMileage = Number(editingCar.mileage) || 0;
 
     if (editingMileageUnit === 'km') {
       rawMileage = Math.round(rawMileage / 1.60934);
     }
 
-    const finalPrice = editingCar.price !== '' ? Number(editingCar.price) : 0;
-    const finalYear = editingCar.year !== '' ? Number(editingCar.year) : 2024;
-    const finalLiquidity = editingCar.liquidity_score !== '' ? Number(editingCar.liquidity_score) : 85;
+    const images = editingCar.images?.length
+      ? editingCar.images
+      : [editingCar.image_url].filter(Boolean);
 
     const payload = {
       ...editingCar,
+      images,
+      image_url: images[0] || '',
       mileage: rawMileage,
-      price: finalPrice,
-      year: finalYear,
-      liquidity_score: finalLiquidity,
-      custom_liquidity: finalLiquidity,
-      discount: editingCar.discount !== '' && editingCar.discount != null ? Number(editingCar.discount) : 0
+      price: Number(editingCar.price) || 0,
+      year: Number(editingCar.year) || 2024,
+      custom_liquidity:
+        Number(editingCar.liquidity_score) || 85,
+      discount: Number(editingCar.discount) || 0
     };
 
-    fetch(`http://127.0.0.1:8000/api/admin/cars/${editingCar.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-      .then(res => res.json())
-      .then(() => {
-        alert(lang === 'ua' ? 'Характеристики та пробіг авто успішно оновлено в БД!' : 'Car updated successfully!');
-        setEditingCar(null);
-        fetchCars();
-      })
-      .catch(() => alert(lang === 'ua' ? 'Помилка оновлення автомобіля' : 'Error updating car'));
+    try {
+      const response = await fetch(
+        `${API}/api/admin/cars/${editingCar.id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to update car');
+      }
+
+      setEditingCar(null);
+      await fetchCars();
+
+      alert(
+        lang === 'ua'
+          ? 'Автомобіль оновлено!'
+          : 'Vehicle updated!'
+      );
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
   const handleToggleSave = (carId) => {
     if (!user) {
-      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб зберігати автомобілі.' : 'Please sign in to save vehicles.');
+      alert(
+        lang === 'ua'
+          ? 'Увійдіть в акаунт, щоб зберігати автомобілі.'
+          : 'Sign in to save vehicles.'
+      );
       setIsAuthModalOpen(true);
       return;
     }
-    updateCurrentUserData(data => {
-      const saved = data.saved.includes(carId)
+
+    const target = cars.find(car => car.id === carId);
+    const alreadySaved = currentUserData.saved.includes(carId);
+
+    if (target?.is_archived && !alreadySaved) return;
+
+    updateCurrentUserData(data => ({
+      ...data,
+      saved: data.saved.includes(carId)
         ? data.saved.filter(id => id !== carId)
-        : [...data.saved, carId];
-      return { ...data, saved };
-    });
+        : [...data.saved, carId]
+    }));
   };
 
   const handleClearRecent = () => {
-    updateCurrentUserData(data => ({ ...data, recent: [] }));
-    alert(lang === 'ua' ? 'Історію переглядів повністю очищено.' : 'History cleared.');
+    updateCurrentUserData(data => ({
+      ...data,
+      recent: []
+    }));
+
+    alert(
+      lang === 'ua'
+        ? 'Історію переглядів очищено.'
+        : 'History cleared.'
+    );
   };
 
   const handleOpenBookingModal = (car) => {
+    if (
+      !car ||
+      car.is_archived ||
+      car.booking_status === 'pending'
+    ) {
+      alert(
+        lang === 'ua'
+          ? 'Цей автомобіль недоступний для бронювання.'
+          : 'This vehicle is unavailable.'
+      );
+      return;
+    }
+
     if (!user) {
-      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб забронювати автомобіль.' : 'Please sign in to book a vehicle.');
+      alert(
+        lang === 'ua'
+          ? 'Увійдіть в акаунт, щоб забронювати автомобіль.'
+          : 'Sign in to book a vehicle.'
+      );
+
       setIsAuthModalOpen(true);
       return;
     }
+
     setCarToBook(car);
     setBookingPhone('');
     setBookingComment('');
     setIsBookingModalOpen(true);
   };
 
-  const handleSubmitBooking = (e) => {
-    e.preventDefault();
-    if (!carToBook || !user) return;
+  const handleSubmitBooking = async (bookingData) => {
+  if (!carToBook || !user || bookingSubmitting) return;
 
-    fetch('http://127.0.0.1:8000/api/bookings', {
+  const phone = bookingData?.phone || bookingPhone;
+  const comment = bookingData?.comment ?? bookingComment;
+
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) {
+    alert(
+      lang === 'ua'
+        ? 'Введіть правильний міжнародний номер телефону.'
+        : 'Enter a valid international phone number.'
+    );
+    return;
+  }
+
+  setBookingSubmitting(true);
+
+  try {
+    const apiUrl = (
+      import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+    ).replace(/\/$/, '');
+
+    const response = await fetch(`${apiUrl}/api/bookings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         user_email: user.email,
-        car_id: carToBook.id,
-        phone: bookingPhone,
-        comment: bookingComment
+        car_id: Number(carToBook.id),
+        phone,
+        comment
       })
-    })
-    .then(res => res.json())
-    .then(() => {
-      updateCurrentUserData(data => ({
-        ...data,
-        booked: [...data.booked, carToBook.id],
-        bookingsDetails: {
-          ...data.bookingsDetails,
-          [carToBook.id]: { phone: bookingPhone, comment: bookingComment, status: 'pending' }
-        }
-      }));
-      setIsBookingModalOpen(false);
-      alert(lang === 'ua' ? 'Запит на бронювання успішно надіслано в базу даних!' : 'Booking request saved to DB!');
-    })
-    .catch(() => alert(lang === 'ua' ? 'Помилка створення бронювання' : 'Error creating booking'));
-  };
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const detail = result.detail;
+
+      throw new Error(
+        typeof detail === 'string'
+          ? detail
+          : `Помилка бронювання: HTTP ${response.status}`
+      );
+    }
+
+    await Promise.all([
+      fetchCars(),
+      fetchMyBookings(),
+      ...(user.is_admin ? [fetchAdminBookings()] : [])
+    ]);
+
+    setIsBookingModalOpen(false);
+    setCarToBook(null);
+    setBookingPhone('');
+    setBookingComment('');
+
+    alert(
+      lang === 'ua'
+        ? 'Автомобіль заброньовано. Заявку надіслано адміністратору.'
+        : 'Vehicle reserved. Your request has been sent to the administrator.'
+    );
+  } catch (error) {
+    console.error('BOOKING ERROR:', error);
+
+    const networkError =
+      error instanceof TypeError ||
+      /failed to fetch|networkerror/i.test(error.message);
+
+    alert(
+      networkError
+        ? (
+            lang === 'ua'
+              ? 'Не вдалося підключитися до FastAPI. Перевір, чи запущений бекенд на http://127.0.0.1:8000 та чи правильно налаштований CORS.'
+              : 'Cannot connect to FastAPI. Check that the backend is running and CORS is configured.'
+          )
+        : error.message
+    );
+  } finally {
+    setBookingSubmitting(false);
+  }
+};
 
   const handleOpenCarDetail = (car) => {
+    if (!car) return;
+
     if (user) {
-      updateCurrentUserData(data => {
-        const recent = [car.id, ...data.recent.filter(id => id !== car.id)].slice(0, 10);
-        return { ...data, recent };
-      });
+      updateCurrentUserData(data => ({
+        ...data,
+        recent: [
+          car.id,
+          ...data.recent.filter(id => id !== car.id)
+        ].slice(0, 10)
+      }));
     }
+
     setSelectedCarForModal(car);
   };
 
-  const handleAddReview = (e) => {
+  const handleAddReview = async (e) => {
     e.preventDefault();
+
     if (!user) {
-      alert(lang === 'ua' ? 'Будь ласка, увійдіть в акаунт, щоб залишити відгук.' : 'Please sign in to leave a review.');
+      alert(
+        lang === 'ua'
+          ? 'Увійдіть, щоб залишити відгук.'
+          : 'Sign in to leave a review.'
+      );
       setIsAuthModalOpen(true);
       return;
     }
-    fetch('http://127.0.0.1:8000/api/reviews', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ author: newReviewAuthor || user.display_name, comment: newReviewComment, rating: newReviewRating })
-    }).then(() => {
+
+    try {
+      const response = await fetch(`${API}/api/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          author: newReviewAuthor || user.display_name,
+          comment: newReviewComment,
+          rating: newReviewRating
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Review failed');
+      }
+
       setNewReviewAuthor('');
       setNewReviewComment('');
-      fetchReviews();
-      alert(lang === 'ua' ? 'Відгук успішно опубліковано!' : 'Review published successfully!');
-    }).catch(() => {});
+      await fetchReviews();
+
+      alert(
+        lang === 'ua'
+          ? 'Відгук успішно опубліковано!'
+          : 'Review published!'
+      );
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
   const totalReviewsCount = reviews.length;
+
   const averageRating = totalReviewsCount > 0
-    ? (reviews.reduce((acc, r) => acc + r.rating, 0) / totalReviewsCount).toFixed(1)
+    ? (
+        reviews.reduce(
+          (sum, review) => sum + Number(review.rating),
+          0
+        ) / totalReviewsCount
+      ).toFixed(1)
     : '4.3';
 
   const filteredReviews = reviewFilter === 'all'
     ? reviews
-    : reviews.filter(r => r.rating === Number(reviewFilter));
+    : reviews.filter(
+        review => review.rating === Number(reviewFilter)
+      );
 
-  const handleSendMessageToAI = (e) => {
+  const handleSendMessageToAILegacy = (e) => {
     e.preventDefault();
+
     if (!chatInput.trim()) return;
-    const userMsg = chatInput;
-    setChatMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
+
+    const text = chatInput.trim();
+
+    setChatMessages(prev => [
+      ...prev,
+      { sender: 'user', text }
+    ]);
+
     setChatInput('');
+
     setTimeout(() => {
-      let reply = lang === 'ua'
-        ? `Я проаналізував ваш запит щодо "${userMsg}". Рекомендую звернути увагу на моделі з ліквідністю вище 85 та перевірити їх наявність в каталозі.`
-        : `I analyzed your query about "${userMsg}". I recommend focusing on models with liquidity above 85 and checking our catalog.`;
-      setChatMessages(prev => [...prev, { sender: 'bot', text: reply }]);
+      setChatMessages(prev => [
+        ...prev,
+        {
+          sender: 'bot',
+          text: lang === 'ua'
+            ? 'Рекомендую звернути увагу на ліквідність, пробіг та історію обслуговування.'
+            : 'Consider liquidity, mileage and service history.'
+        }
+      ]);
     }, 800);
   };
 
- const [forumMessages, setForumMessages] = useState([]);
-const [forumAvatars, setForumAvatars] = useState({});
-const [forumInput, setForumInput] = useState('');
+  const handleSendMessageToAI = async (
+    e,
+    suggestedText = null
+  ) => {
+    e?.preventDefault();
 
-  // Функція завантаження повідомлень форуму з БД
-  // Функція завантаження повідомлень форуму з БД
-const fetchForumMessages = () => {
-  fetch('http://127.0.0.1:8000/api/forum')
-    .then(res => {
-      if (!res.ok) {
-        throw new Error('Не вдалося завантажити повідомлення форуму');
+    const text = String(
+      suggestedText ?? chatInput
+    ).trim();
+
+    if (!text || isAiTyping) return;
+
+    const next = [
+      ...chatMessages,
+      { sender: 'user', text }
+    ];
+
+    setChatMessages(next);
+    setChatInput('');
+    setIsAiTyping(true);
+
+    const brief = (car) => ({
+      id: car.id,
+      name: car.title || `${car.brand} ${car.model}`,
+      year: car.year,
+      price: getFinalPrice(car),
+      mileage: car.mileage_raw,
+      body_type: car.body_type,
+      transmission: car.transmission,
+      liquidity_score: car.liquidity_score,
+      booking_status: car.booking_status,
+      is_archived: Boolean(car.is_archived),
+      url: `/?tab=discover&car=${car.id}`
+    });
+
+    const context = {
+      lang,
+      currency,
+      distanceUnit,
+      activeTab,
+      userName: user?.display_name,
+      saved: cars
+        .filter(car => currentUserData.saved.includes(car.id))
+        .slice(0, 10)
+        .map(brief),
+      recent: cars
+        .filter(car => currentUserData.recent.includes(car.id))
+        .slice(0, 10)
+        .map(brief),
+      catalog: cars
+        .filter(car =>
+          !car.is_archived &&
+          car.booking_status !== 'pending'
+        )
+        .slice(0, 30)
+        .map(brief)
+    };
+
+    try {
+      const response = await fetch(`${API}/api/ai-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: next,
+          context
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'AI error');
       }
-      return res.json();
-    })
-    .then(data => {
-      setForumMessages(Array.isArray(data.messages) ? data.messages : []);
+
+      setChatMessages(prev => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: data.reply || ''
+        }
+      ]);
+    } catch (error) {
+      console.error(error);
+
+      setChatMessages(prev => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: lang === 'ua'
+            ? 'Вибачте, сталася помилка. Спробуйте ще раз.'
+            : 'Sorry, something went wrong. Please try again.'
+        }
+      ]);
+    } finally {
+      setIsAiTyping(false);
+    }
+  };
+
+  const fetchForumMessages = async () => {
+    try {
+      const response = await fetch(`${API}/api/forum`);
+
+      if (!response.ok) {
+        throw new Error('Forum load failed');
+      }
+
+      const data = await response.json();
+
+      setForumMessages(
+        Array.isArray(data.messages) ? data.messages : []
+      );
+
       setForumAvatars(data.avatars || {});
-    })
-    .catch(error => {
-      console.error('Помилка завантаження форуму:', error);
+    } catch (error) {
+      console.error('Forum loading error:', error);
       setForumMessages([]);
       setForumAvatars({});
-    });
-};
+    }
+  };
 
   useEffect(() => {
     fetchForumMessages();
   }, []);
 
-  const handleSendForumMessage = (e) => {
+  const handleSendForumMessage = async (e) => {
     e.preventDefault();
+
     if (!user) {
-      alert(lang === 'ua' ? 'Тільки зареєстровані користувачі з реальних пошт можуть писати у форум!' : 'Only registered users can write in the forum!');
+      alert(
+        lang === 'ua'
+          ? 'Тільки зареєстровані користувачі можуть писати у форум!'
+          : 'Only registered users can write in the forum!'
+      );
       setIsAuthModalOpen(true);
       return;
     }
+
     if (!forumInput.trim()) return;
 
-    fetch('http://127.0.0.1:8000/api/forum', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: user.email,
-        author: user.display_name,
-        avatar_url: user.avatar_url || '',
-        message: forumInput
-      })
-    })
-    .then(res => res.json())
-    .then(() => {
+    try {
+      const response = await fetch(`${API}/api/forum`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          author: user.display_name,
+          avatar_url: user.avatar_url || '',
+          message: forumInput
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Forum message failed');
+      }
+
       setForumInput('');
-      fetchForumMessages();
-    })
-    .catch(() => alert(lang === 'ua' ? 'Помилка надсилання повідомлення' : 'Error sending message'));
+      await fetchForumMessages();
+    } catch (error) {
+      alert(error.message);
+    }
   };
 
   const value = {
     activeTab, setActiveTab,
-    lang, setLang, currency, setCurrency, distanceUnit, setDistanceUnit,
-    user, setUser, savedAccounts, setSavedAccounts,
+    lang, setLang,
+    currency, setCurrency,
+    distanceUnit, setDistanceUnit,
+
+    user, setUser,
+    savedAccounts, setSavedAccounts,
+
     isAccountSwitcherOpen, setIsAccountSwitcherOpen,
-    isAuthModalOpen, setIsAuthModalOpen, authMode, setAuthMode,
-    emailInput, setEmailInput, passInput, setPassInput, nameInput, setNameInput,
+    isAuthModalOpen, setIsAuthModalOpen,
+    authMode, setAuthMode,
+
+    emailInput, setEmailInput,
+    passInput, setPassInput,
+    nameInput, setNameInput,
+
     isSettingsOpen, setIsSettingsOpen,
-    settingsName, setSettingsName, settingsAvatar, setSettingsAvatar,
-    settingsLang, setSettingsLang, settingsCurrency, setSettingsCurrency,
+    settingsName, setSettingsName,
+    settingsAvatar, setSettingsAvatar,
+    settingsLang, setSettingsLang,
+    settingsCurrency, setSettingsCurrency,
     settingsDistance, setSettingsDistance,
-    emailAlerts, setEmailAlerts, deliveryFreq, setDeliveryFreq,
+
+    emailAlerts, setEmailAlerts,
+    deliveryFreq, setDeliveryFreq,
     minLiquidity, setMinLiquidity,
-    currentPass, setCurrentPass, newPass, setNewPass, confirmNewPass, setConfirmNewPass,
-    budget, setBudget, selectedBrand, setSelectedBrand, selectedBody, setSelectedBody,
-    selectedTransmission, setSelectedTransmission, minLiquidityFilter, setMinLiquidityFilter,
+
+    currentPass, setCurrentPass,
+    newPass, setNewPass,
+    confirmNewPass, setConfirmNewPass,
+
+    budget, setBudget,
+    selectedBrand, setSelectedBrand,
+    selectedBody, setSelectedBody,
+    selectedTransmission, setSelectedTransmission,
+    minLiquidityFilter, setMinLiquidityFilter,
     appliedFilters, setAppliedFilters,
-    cars, setCars, adminBookings, setAdminBookings,
+
+    cars, setCars,
+    adminBookings, setAdminBookings,
+    myBookings, setMyBookings,
+    purchasedCars, fetchMyBookings,
+
     selectedCarForModal, setSelectedCarForModal,
     isFullComparisonOpen, setIsFullComparisonOpen,
-    editingCar, setEditingCar, editingMileageUnit, setEditingMileageUnit,
+
+    editingCar, setEditingCar,
+    editingMileageUnit, setEditingMileageUnit,
     newCarMileageUnit, setNewCarMileageUnit,
+
     userPersonalData, setUserPersonalData,
-    isBookingModalOpen, setIsBookingModalOpen, carToBook, setCarToBook,
-    bookingPhone, setBookingPhone, bookingComment, setBookingComment,
-    reviews, setReviews, currentReviewIdx, setCurrentReviewIdx,
-    showAllReviews, setShowAllReviews, reviewFilter, setReviewFilter,
-    newReviewAuthor, setNewReviewAuthor, newReviewComment, setNewReviewComment,
-    newReviewRating, setNewReviewRating, isPaused, setIsPaused,
-    compareCar1, setCompareCar1, compareCar2, setCompareCar2,
-    isChatOpen, setIsChatOpen, chatMessages, setChatMessages, chatInput, setChatInput,
-    newCar, setNewCar, initialNewCarState,
-    currentText,
-    fetchCars, fetchReviews, fetchAdminBookings,
     currentUserData, updateCurrentUserData,
-    formatPrice, getFinalPrice, formatMileage, handleApplyFilters,
-    totalDbCars, calculatedAvgPrice, calculatedLiquidityAvg,
-    savedVehiclesObjects, calculatedSavedValue,
-    handleAuth, handleSavePreferences, handleImageUpload, handleAvatarUpload,
-    handleAddCar, handleUpdateCar, handleToggleSave, handleClearRecent,
-    handleOpenBookingModal, handleSubmitBooking, handleOpenCarDetail, handleAddReview,
-    totalReviewsCount, averageRating, filteredReviews,
+
+    isBookingModalOpen, setIsBookingModalOpen,
+    carToBook, setCarToBook,
+    bookingPhone, setBookingPhone,
+    bookingComment, setBookingComment,
+    bookingSubmitting,
+
+    reviews, setReviews,
+    currentReviewIdx, setCurrentReviewIdx,
+    showAllReviews, setShowAllReviews,
+    reviewFilter, setReviewFilter,
+
+    newReviewAuthor, setNewReviewAuthor,
+    newReviewComment, setNewReviewComment,
+    newReviewRating, setNewReviewRating,
+    isPaused, setIsPaused,
+
+    compareCar1, setCompareCar1,
+    compareCar2, setCompareCar2,
+
+    isChatOpen, setIsChatOpen,
+    chatMessages, setChatMessages,
+    chatInput, setChatInput,
+    isAiTyping,
+
+    newCar, setNewCar,
+    initialNewCarState,
+    currentText,
+
+    fetchCars,
+    fetchReviews,
+    fetchAdminBookings,
+
+    formatPrice,
+    getFinalPrice,
+    formatMileage,
+    handleApplyFilters,
+
+    totalDbCars,
+    calculatedAvgPrice,
+    calculatedLiquidityAvg,
+
+    savedVehiclesObjects,
+    calculatedSavedValue,
+
+    handleAuth,
+    handleSavePreferences,
+    handleImageUpload,
+    handleAvatarUpload,
+
+    handleAddCar,
+    handleUpdateCar,
+    handleToggleSave,
+    handleClearRecent,
+
+    handleOpenBookingModal,
+    handleSubmitBooking,
+    handleOpenCarDetail,
+    handleAddReview,
+
+    totalReviewsCount,
+    averageRating,
+    filteredReviews,
+
     handleSendMessageToAI,
-   forumMessages, setForumMessages,
-forumAvatars, setForumAvatars,
-forumInput, setForumInput,
-fetchForumMessages, handleSendForumMessage
+    handleSendMessageToAILegacy,
+
+    forumMessages, setForumMessages,
+    forumAvatars, setForumAvatars,
+    forumInput, setForumInput,
+    fetchForumMessages,
+    handleSendForumMessage
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+    </AppContext.Provider>
+  );
 }
 
 export const useApp = () => useContext(AppContext);

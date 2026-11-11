@@ -1,70 +1,260 @@
-import React from 'react';
-import { X } from 'lucide-react';
 
-export default function CarDetailModal({ car, isOpen, onClose, theme, lang, formatPrice, formatMileage, onBook }) {
+import React, { useEffect, useState } from 'react';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+
+export default function CarDetailModal({
+  car,
+  isOpen,
+  onClose,
+  theme,
+  lang,
+  formatPrice,
+  formatMileage,
+  onBook
+}) {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [car?.id, isOpen]);
+
   if (!isOpen || !car) return null;
 
   const ua = lang === 'ua';
-  const finalPrice = Number(car.discount) > 0 ? Math.round(car.price * (1 - Number(car.discount) / 100)) : car.price;
+  const dark = theme === 'dark';
+
+  const images = (
+    Array.isArray(car.images) && car.images.length
+      ? car.images
+      : Array.isArray(car.image_urls) && car.image_urls.length
+        ? car.image_urls
+        : [car.image_url]
+  ).filter(Boolean);
+
+  const selectedImage = images[index] || images[0];
+
+  const finalPrice = Math.round(
+    Number(car.price) *
+    (1 - (Number(car.discount) || 0) / 100)
+  );
+
+  const archived = Boolean(car.is_archived);
+  const pending = car.booking_status === 'pending';
+  const unavailable = archived || pending;
 
   const specs = [
-    { label: ua ? 'Рік' : 'Year', value: car.year },
-    { label: ua ? 'Кузов' : 'Body', value: car.body_type },
-    { label: ua ? 'Коробка' : 'Transmission', value: car.transmission },
-    { label: ua ? 'Двигун' : 'Engine', value: car.engine_volume || '2.0L' },
-    { label: ua ? 'Пробіг' : 'Mileage', value: formatMileage(car.mileage ?? 15000) },
-    { label: ua ? 'Ліквідність' : 'Liquidity', value: `${car.liquidity_score} / 100` },
+    [ua ? 'Рік' : 'Year', car.year],
+    [
+      ua ? 'Пробіг' : 'Mileage',
+      formatMileage(car.mileage_raw ?? car.mileage)
+    ],
+    [ua ? 'Двигун' : 'Engine', car.engine_volume || '2.0L'],
+    [ua ? 'Кузов' : 'Body', car.body_type],
+    [
+      ua ? 'Коробка передач' : 'Transmission',
+      car.transmission
+    ],
+    [
+      ua ? 'Ліквідність' : 'Liquidity',
+      `${car.liquidity_score}/100`
+    ]
   ];
 
+  const previous = () => {
+    setIndex(prev =>
+      (prev - 1 + images.length) % images.length
+    );
+  };
+
+  const next = () => {
+    setIndex(prev =>
+      (prev + 1) % images.length
+    );
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-      <div className={`rounded-3xl w-full max-w-2xl shadow-2xl border text-left max-h-[90vh] overflow-y-auto ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <div className="relative h-64 overflow-hidden rounded-t-3xl">
-          <img src={car.image_url} alt={car.title} className="w-full h-full object-cover" />
-          {car.badge && (
-            <span className="absolute top-3 left-3 text-[10px] font-extrabold px-3 py-1 bg-emerald-500 text-white rounded-full uppercase shadow">{car.badge}</span>
-          )}
-          <button onClick={onClose} className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black text-white rounded-full cursor-pointer"><X size={18}/></button>
+    <div
+      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-6"
+      onMouseDown={e => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className={`relative w-full max-w-5xl max-h-[94vh] overflow-y-auto rounded-3xl shadow-2xl border grid grid-cols-1 md:grid-cols-[1.12fr_1fr] ${
+        dark
+          ? 'bg-[#0f172a] border-slate-700 text-white'
+          : 'bg-white border-slate-200 text-slate-900'
+      }`}>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 z-20 bg-slate-900/80 text-white rounded-full p-2 hover:bg-slate-700"
+        >
+          <X size={18} />
+        </button>
+
+        <div className={`p-4 flex flex-col gap-3 ${
+          dark ? 'bg-slate-950' : 'bg-slate-50'
+        }`}>
+          <div className={`relative h-[300px] md:h-[440px] flex items-center justify-center rounded-2xl overflow-hidden ${
+            dark ? 'bg-slate-900' : 'bg-white'
+          }`}>
+            {selectedImage && (
+              <img
+                src={selectedImage}
+                alt={`${car.title} — ${index + 1}`}
+                className="w-full h-full object-contain"
+              />
+            )}
+
+            {car.badge && (
+              <span className="absolute top-3 left-3 bg-emerald-500 text-white rounded-full px-3 py-1 text-[10px] font-bold">
+                {car.badge}
+              </span>
+            )}
+
+            {images.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={previous}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/70 text-white p-2 rounded-full hover:bg-black"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={next}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/70 text-white p-2 rounded-full hover:bg-black"
+                >
+                  <ChevronRight size={20} />
+                </button>
+
+                <span className="absolute bottom-3 right-3 text-white text-xs bg-black/70 rounded-lg px-2 py-1">
+                  {index + 1}/{images.length}
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {images.map((src, i) => (
+              <button
+                type="button"
+                key={`${i}-${src.slice(0, 20)}`}
+                onClick={() => setIndex(i)}
+                className={`shrink-0 w-20 h-16 rounded-xl overflow-hidden border-2 ${
+                  index === i
+                    ? 'border-emerald-500'
+                    : dark
+                      ? 'border-slate-700'
+                      : 'border-slate-200'
+                }`}
+              >
+                <img
+                  src={src}
+                  alt={`${car.title} ${i + 1}`}
+                  className={`w-full h-full object-contain ${
+                    dark ? 'bg-slate-900' : 'bg-white'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="p-8 space-y-6">
-          <div className="flex justify-between items-center">
-            <h3 className="text-2xl font-black">{car.title}</h3>
-            <div className="text-right">
-              {car.discount > 0 && (
-                <span className="block text-xs font-semibold line-through text-slate-400">{formatPrice(car.price)} <span className="ml-1 px-2 py-0.5 bg-red-500 text-white rounded-full no-underline inline-block">-{car.discount}%</span></span>
-              )}
-              <span className="text-2xl font-black text-emerald-400">{formatPrice(finalPrice)}</span>
+        <div className="p-6 md:p-8 space-y-6">
+          <div className="pr-8">
+            <p className="text-emerald-500 text-[10px] tracking-widest font-black uppercase">
+              Verified Market Listing
+            </p>
+
+            <div className="flex justify-between items-start gap-3 mt-3">
+              <h2 className="text-2xl font-black">
+                {car.title}
+              </h2>
+
+              <div className="text-right shrink-0">
+                {Number(car.discount) > 0 && (
+                  <p className="line-through text-slate-400 text-xs">
+                    {formatPrice(car.price)}
+                  </p>
+                )}
+
+                <p className="text-xl font-black text-emerald-500">
+                  {formatPrice(finalPrice)}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {specs.map((s, i) => (
-              <div key={i} className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                <p className="text-[10px] uppercase font-bold text-slate-400">{s.label}</p>
-                <p className="text-sm font-bold mt-0.5">{s.value}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {specs.map(([label, value]) => (
+              <div
+                key={label}
+                className={`rounded-xl border p-3 ${
+                  dark
+                    ? 'bg-slate-900 border-slate-700'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <p className="text-[10px] text-slate-400">
+                  {label}
+                </p>
+                <p className="text-xs font-bold mt-1">
+                  {value}
+                </p>
               </div>
             ))}
           </div>
 
-          <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-            <div className="w-full bg-slate-700/50 h-2 rounded-full overflow-hidden">
-              <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${car.liquidity_score}%` }}></div>
+          <div className={`rounded-2xl border p-4 ${
+            dark
+              ? 'border-emerald-700 bg-emerald-950/30'
+              : 'border-emerald-200 bg-emerald-50'
+          }`}>
+            <p className="text-emerald-500 font-bold text-sm">
+              {ua
+                ? 'Ліквідність автомобіля'
+                : 'Resale outlook'}: {car.liquidity_score}/100
+            </p>
+
+            <div className={`mt-3 h-2 rounded-full overflow-hidden ${
+              dark ? 'bg-slate-700/40' : 'bg-emerald-200'
+            }`}>
+              <div
+                className="h-full bg-emerald-500"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.max(0, Number(car.liquidity_score) || 0)
+                  )}%`
+                }}
+              />
             </div>
           </div>
 
           {car.description && (
-            <p className={`text-sm font-medium leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>{car.description}</p>
+            <p className="text-sm leading-relaxed opacity-80">
+              {car.description}
+            </p>
           )}
 
-          <div className="flex gap-3">
-            <button onClick={() => onBook(car)} className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer">
-              {ua ? 'Забронювати' : 'Book now'}
-            </button>
-            <button onClick={onClose} className={`px-5 py-3 rounded-xl text-xs font-bold border cursor-pointer ${theme === 'dark' ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-700'}`}>
-              {ua ? 'Закрити' : 'Close'}
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={unavailable}
+            onClick={() => {
+              onClose();
+              onBook(car);
+            }}
+            className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold"
+          >
+            {archived
+              ? (ua ? 'В архіві' : 'Archived')
+              : pending
+                ? (ua ? 'Заброньовано' : 'Reserved')
+                : (ua ? 'Забронювати' : 'Book now')}
+          </button>
         </div>
       </div>
     </div>

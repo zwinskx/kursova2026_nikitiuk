@@ -1,437 +1,1825 @@
+
 import React, { useState } from 'react';
-import { ShieldPlus, Trash2, X, Upload } from 'lucide-react';
+import {
+  ShieldPlus,
+  Trash2,
+  X,
+  Upload,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Pencil,
+  CarFront,
+  Archive,
+  ShoppingBag,
+  ClipboardList,
+  CircleX,
+  RefreshCw
+} from 'lucide-react';
+
 import { useTheme } from '../context/ThemeContext';
 import { useApp } from '../context/AppContext';
 
+const API = (
+  import.meta.env.VITE_API_URL ||
+  'http://127.0.0.1:8000'
+).replace(/\/$/, '');
+
+const toNumber = value => Number(value) || 0;
+
+const emptyValue = value =>
+  value === '' ||
+  value === null ||
+  value === undefined ||
+  String(value).trim() === '';
+
+function FieldError({ message }) {
+  if (!message) return null;
+
+  return (
+    <p className="text-[10px] font-semibold text-red-400 mt-1">
+      {message}
+    </p>
+  );
+}
+
 export default function AdminPage() {
   const { theme } = useTheme();
+
   const {
-    currentText, lang, adminBookings, fetchAdminBookings, cars, fetchCars, formatPrice,
-    editingCar, setEditingCar, editingMileageUnit, setEditingMileageUnit, distanceUnit,
-    handleUpdateCar, newCar, setNewCar, newCarMileageUnit, setNewCarMileageUnit,
-    handleAddCar, handleImageUpload
+    currentText,
+    lang,
+    adminBookings,
+    fetchAdminBookings,
+    cars,
+    fetchCars,
+    formatPrice,
+    editingCar,
+    setEditingCar,
+    editingMileageUnit,
+    setEditingMileageUnit,
+    distanceUnit,
+    handleUpdateCar,
+    newCar,
+    setNewCar,
+    newCarMileageUnit,
+    setNewCarMileageUnit,
+    handleAddCar,
+    handleImageUpload,
+    fetchMyBookings
   } = useApp();
 
-  const tr = (ua, en) => (lang === 'ua' ? ua : en);
+  const dark = theme === 'dark';
+  const tr = (ua, en) => lang === 'ua' ? ua : en;
+
+  const [activeTab, setActiveTab] = useState('requests');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
+
   const [addTried, setAddTried] = useState(false);
   const [editTried, setEditTried] = useState(false);
 
-  const isEmpty = (v) => v === '' || v === null || v === undefined || String(v).trim() === '';
+  const [processingBookingId, setProcessingBookingId] = useState(null);
+  const [processingCarId, setProcessingCarId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Валідація: усі поля обов'язкові, окрім опису
+  const panelClass = `p-5 sm:p-7 rounded-3xl border shadow-xl ${
+    dark
+      ? 'bg-[#0f172a] border-slate-800 text-white'
+      : 'bg-white border-slate-200 text-slate-900'
+  }`;
+
+  const rowClass = `p-4 rounded-2xl border ${
+    dark
+      ? 'bg-slate-900 border-slate-800'
+      : 'bg-slate-50 border-slate-200'
+  }`;
+
+  const labelClass = `block text-xs font-semibold mb-1 ${
+    dark ? 'text-slate-300' : 'text-slate-700'
+  }`;
+
+  const inputClass = error => `w-full px-3 py-2.5 rounded-xl border text-xs outline-none focus:ring-2 focus:ring-emerald-500/30 ${
+    error
+      ? 'border-red-500'
+      : dark
+        ? 'border-slate-700'
+        : 'border-slate-300'
+  } ${
+    dark
+      ? 'bg-slate-900 text-white'
+      : 'bg-slate-50 text-slate-900'
+  }`;
+
+  const greenButton =
+    'px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed';
+
+  const amberButton =
+    'px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed';
+
+  const redButton =
+    'px-3 py-2.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white text-xs font-bold rounded-xl transition disabled:opacity-40 disabled:cursor-not-allowed';
+
+  const neutralButton = `px-4 py-2.5 rounded-xl text-xs font-bold border transition disabled:opacity-40 disabled:cursor-not-allowed ${
+    dark
+      ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
+  }`;
+
+  const bookings = Array.isArray(adminBookings)
+    ? adminBookings
+    : [];
+
+  const allCars = Array.isArray(cars) ? cars : [];
+
+  const pendingBookings = bookings.filter(
+    booking => booking.status === 'pending'
+  );
+
+  const approvedBookings = bookings.filter(
+    booking => booking.status === 'approved'
+  );
+
+  const rejectedBookings = bookings.filter(
+    booking => booking.status === 'rejected'
+  );
+
+  const activeCars = allCars.filter(
+    car => !car.is_archived
+  );
+
+  const archivedCars = allCars.filter(
+    car => Boolean(car.is_archived)
+  );
+
+  const getCar = id =>
+    allCars.find(car => Number(car.id) === Number(id));
+
+  const isSold = carId =>
+    approvedBookings.some(
+      booking => Number(booking.car_id) === Number(carId)
+    );
+
+  const getCarTitle = booking =>
+    getCar(booking.car_id)?.title ||
+    `Car ID: ${booking.car_id}`;
+
+  const purchasePrice = booking =>
+    Number(
+      booking.purchase_price ??
+      getCar(booking.car_id)?.price ??
+      0
+    );
+
+  const displayDate = value => {
+    if (!value) return '—';
+
+    const normalized =
+      /Z$|[+-]\d{2}:\d{2}$/.test(String(value))
+        ? String(value)
+        : `${value}Z`;
+
+    const date = new Date(normalized);
+
+    if (Number.isNaN(date.getTime())) return '—';
+
+    return date.toLocaleString(
+      lang === 'ua' ? 'uk-UA' : 'en-US'
+    );
+  };
+
+  const tabs = [
+    {
+      id: 'requests',
+      label: tr('Заявки', 'Requests'),
+      icon: ClipboardList,
+      count: pendingBookings.length
+    },
+    {
+      id: 'purchases',
+      label: tr('Покупки', 'Purchases'),
+      icon: ShoppingBag,
+      count: approvedBookings.length
+    },
+    {
+      id: 'rejected',
+      label: tr('Відхилені', 'Rejected'),
+      icon: CircleX,
+      count: rejectedBookings.length
+    },
+    {
+      id: 'cars',
+      label: tr('Автомобілі', 'Cars'),
+      icon: CarFront,
+      count: activeCars.length
+    },
+    {
+      id: 'archive',
+      label: tr('Архів', 'Archive'),
+      icon: Archive,
+      count: archivedCars.length
+    },
+    {
+      id: 'add',
+      label: tr('Додати авто', 'Add car'),
+      icon: Plus
+    },
+    {
+      id: 'edit',
+      label: tr('Редагування', 'Editing'),
+      icon: Pencil
+    }
+  ];
+
+  const changeTab = tab => {
+    setActiveTab(tab);
+    setSearch('');
+    setPage(1);
+  };
+
+  const searchableTabs = [
+    'requests',
+    'purchases',
+    'rejected',
+    'cars',
+    'archive'
+  ];
+
+  const normalize = value =>
+    String(value ?? '').toLowerCase().trim();
+
+  const matchesCar = car => {
+    const text = [
+      car.id,
+      car.title,
+      car.brand,
+      car.model,
+      car.year,
+      car.body_type,
+      car.transmission,
+      car.badge
+    ].map(normalize).join(' ');
+
+    return text.includes(normalize(search));
+  };
+
+  const matchesBooking = booking => {
+    const car = getCar(booking.car_id);
+
+    const text = [
+      booking.id,
+      booking.car_id,
+      booking.user_email,
+      booking.phone,
+      booking.comment,
+      booking.status,
+      car?.title,
+      car?.brand,
+      car?.model
+    ].map(normalize).join(' ');
+
+    return text.includes(normalize(search));
+  };
+
+  const getTabItems = () => {
+    switch (activeTab) {
+      case 'requests':
+        return pendingBookings.filter(matchesBooking);
+
+      case 'purchases':
+        return approvedBookings.filter(matchesBooking);
+
+      case 'rejected':
+        return rejectedBookings.filter(matchesBooking);
+
+      case 'cars':
+        return activeCars.filter(matchesCar);
+
+      case 'archive':
+        return archivedCars.filter(matchesCar);
+
+      default:
+        return [];
+    }
+  };
+
+  const filteredItems = getTabItems();
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredItems.length / pageSize)
+  );
+
+  const safePage = Math.min(page, totalPages);
+
+  const startIndex = (safePage - 1) * pageSize;
+
+  const visibleItems = filteredItems.slice(
+    startIndex,
+    startIndex + pageSize
+  );
+
+  const refreshData = async () => {
+    await Promise.all([
+      Promise.resolve(fetchAdminBookings()),
+      Promise.resolve(fetchCars()),
+      Promise.resolve(fetchMyBookings())
+    ]);
+  };
+
+  const manualRefresh = async () => {
+    if (refreshing) return;
+
+    setRefreshing(true);
+
+    try {
+      await refreshData();
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const checkResponse = async response => {
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        typeof data.detail === 'string'
+          ? data.detail
+          : `HTTP ${response.status}`
+      );
+    }
+
+    return data;
+  };
+
+  const decideBooking = async (bookingId, status) => {
+    if (processingBookingId !== null) return;
+
+    setProcessingBookingId(bookingId);
+
+    try {
+      const response = await fetch(
+        `${API}/api/admin/bookings/${bookingId}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status })
+        }
+      );
+
+      await checkResponse(response);
+      await refreshData();
+
+      alert(
+        status === 'approved'
+          ? tr(
+              'Покупку підтверджено!',
+              'Purchase approved!'
+            )
+          : tr(
+              'Бронювання відхилено!',
+              'Booking rejected!'
+            )
+      );
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setProcessingBookingId(null);
+    }
+  };
+
+  const deleteBooking = async bookingId => {
+    if (processingBookingId !== null) return;
+
+    if (!window.confirm(
+      tr(
+        'Видалити цю заявку з бази?',
+        'Delete this request from database?'
+      )
+    )) return;
+
+    setProcessingBookingId(bookingId);
+
+    try {
+      const response = await fetch(
+        `${API}/api/admin/bookings/${bookingId}`,
+        { method: 'DELETE' }
+      );
+
+      await checkResponse(response);
+      await refreshData();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setProcessingBookingId(null);
+    }
+  };
+
+  const setArchived = async (carId, isArchived) => {
+    if (processingCarId !== null) return;
+
+    setProcessingCarId(carId);
+
+    try {
+      const response = await fetch(
+        `${API}/api/admin/cars/${carId}/archive`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            is_archived: isArchived
+          })
+        }
+      );
+
+      await checkResponse(response);
+      await refreshData();
+
+      if (!isArchived) {
+        alert(
+          tr(
+            'Автомобіль повернуто в каталог!',
+            'Vehicle restored to catalog!'
+          )
+        );
+      }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setProcessingCarId(null);
+    }
+  };
+
+  const deleteCar = async car => {
+  if (!window.confirm(
+    tr(
+      `Точно видалити ${car.title} з каталогу? Історія покупок залишиться.`,
+      `Delete ${car.title} from the catalog? Purchase history will be preserved.`
+    )
+  )) return;
+
+  setProcessingCarId(car.id);
+
+  try {
+    const response = await fetch(
+      `${API}/api/admin/cars/${car.id}`,
+      { method: 'DELETE' }
+    );
+
+    await checkResponse(response);
+    await refreshData();
+
+    alert(tr('Автомобіль видалено!', 'Vehicle deleted!'));
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setProcessingCarId(null);
+  }
+};
+
+  const openEdit = car => {
+    setEditingCar({
+      ...car,
+      images: (
+        Array.isArray(car.images) && car.images.length
+          ? car.images
+          : [car.image_url]
+      ).filter(Boolean),
+      mileage:
+        car.mileage_raw !== undefined
+          ? car.mileage_raw
+          : parseInt(
+              String(car.mileage).replace(/\D/g, ''),
+              10
+            ) || '',
+      discount: car.discount ?? '',
+      liquidity_score:
+        car.liquidity_score ??
+        car.custom_liquidity ??
+        ''
+    });
+
+    setEditingMileageUnit(distanceUnit);
+    setEditTried(false);
+    changeTab('edit');
+  };
+
   const validateCar = (car, liquidityKey, needImage) => {
     const errors = {};
-    const req = tr('Це поле обов\'язкове', 'This field is required');
+    const required = tr(
+      "Це поле обов'язкове",
+      'Required field'
+    );
 
-    if (isEmpty(car.brand)) errors.brand = req;
-    if (isEmpty(car.model)) errors.model = req;
-    if (isEmpty(car.engine_volume)) errors.engine_volume = req;
-    if (isEmpty(car.badge)) errors.badge = req;
-
-    if (isEmpty(car.year)) errors.year = req;
-    else {
-      const y = Number(car.year);
-      if (!Number.isInteger(y) || y < 1990 || y > 2027) errors.year = tr('Рік має бути від 1990 до 2027', 'Year must be between 1990 and 2027');
+    if (!car) {
+      errors.car = required;
+      return errors;
     }
 
-    if (isEmpty(car.price)) errors.price = req;
-    else if (Number(car.price) <= 0) errors.price = tr('Ціна має бути більшою за 0', 'Price must be greater than 0');
+    if (emptyValue(car.brand)) errors.brand = required;
+    if (emptyValue(car.model)) errors.model = required;
+    if (emptyValue(car.engine_volume)) {
+      errors.engine_volume = required;
+    }
+    if (emptyValue(car.badge)) errors.badge = required;
 
-    if (isEmpty(car.mileage)) errors.mileage = req;
-    else if (Number(car.mileage) < 0) errors.mileage = tr('Пробіг не може бути від\'ємним', 'Mileage cannot be negative');
-
-    const liq = car[liquidityKey];
-    if (isEmpty(liq)) errors.liquidity = req;
-    else if (Number(liq) < 0 || Number(liq) > 100) errors.liquidity = tr('Значення від 0 до 100', 'Value must be 0 to 100');
-
-    // Знижка — необов'язкова, але якщо вказана, то від 0 до 90 %
-    if (!isEmpty(car.discount)) {
-      const d = Number(car.discount);
-      if (isNaN(d) || d < 0 || d > 90) errors.discount = tr('Знижка має бути від 0 до 90%', 'Discount must be between 0 and 90%');
+    if (
+      !Number.isInteger(Number(car.year)) ||
+      Number(car.year) < 1990 ||
+      Number(car.year) > 2027
+    ) {
+      errors.year = tr(
+        'Рік має бути від 1990 до 2027',
+        'Year must be between 1990 and 2027'
+      );
     }
 
-    if (needImage && isEmpty(car.image_url)) errors.image = tr('Завантажте фото автомобіля', 'Please upload a car image');
+    if (
+      emptyValue(car.price) ||
+      !Number.isFinite(Number(car.price)) ||
+      Number(car.price) <= 0
+    ) {
+      errors.price = tr(
+        'Введіть правильну ціну',
+        'Enter a valid price'
+      );
+    }
+
+    if (
+      emptyValue(car.mileage) ||
+      !Number.isFinite(Number(car.mileage)) ||
+      Number(car.mileage) < 0
+    ) {
+      errors.mileage = tr(
+        'Введіть правильний пробіг',
+        'Enter valid mileage'
+      );
+    }
+
+    const liquidity = car[liquidityKey];
+
+    if (
+      emptyValue(liquidity) ||
+      !Number.isFinite(Number(liquidity)) ||
+      Number(liquidity) < 0 ||
+      Number(liquidity) > 100
+    ) {
+      errors.liquidity = tr(
+        'Ліквідність від 0 до 100',
+        'Liquidity from 0 to 100'
+      );
+    }
+
+    if (!emptyValue(car.discount)) {
+      const discount = Number(car.discount);
+
+      if (
+        !Number.isFinite(discount) ||
+        discount < 0 ||
+        discount > 90
+      ) {
+        errors.discount = tr(
+          'Знижка від 0 до 90%',
+          'Discount from 0 to 90%'
+        );
+      }
+    }
+
+    if (
+      needImage &&
+      !car.image_url &&
+      !(car.images || []).length
+    ) {
+      errors.image = tr(
+        'Додайте хоча б одне фото',
+        'Add at least one photo'
+      );
+    }
 
     return errors;
   };
 
-  const addErrors = addTried ? validateCar(newCar, 'custom_liquidity', true) : {};
-  const editErrors = editTried && editingCar ? validateCar(editingCar, 'liquidity_score', false) : {};
+  const addErrors = addTried
+    ? validateCar(newCar, 'custom_liquidity', true)
+    : {};
 
-  const submitAdd = (e) => {
-    e.preventDefault();
+  const editErrors = editTried && editingCar
+    ? validateCar(editingCar, 'liquidity_score', false)
+    : {};
+
+  const submitAdd = event => {
+    event.preventDefault();
     setAddTried(true);
-    if (Object.keys(validateCar(newCar, 'custom_liquidity', true)).length > 0) return;
-    handleAddCar(e);
+
+    if (
+      Object.keys(
+        validateCar(newCar, 'custom_liquidity', true)
+      ).length > 0
+    ) return;
+
+    handleAddCar(event);
     setAddTried(false);
   };
 
-  const submitEdit = (e) => {
-    e.preventDefault();
+  const submitEdit = event => {
+    event.preventDefault();
     setEditTried(true);
-    if (Object.keys(validateCar(editingCar, 'liquidity_score', false)).length > 0) return;
-    handleUpdateCar(e);
+
+    if (
+      Object.keys(
+        validateCar(editingCar, 'liquidity_score', false)
+      ).length > 0
+    ) return;
+
+    handleUpdateCar(event);
     setEditTried(false);
   };
 
-  // Стилі полів: червона рамка при помилці
-  const ic = (hasErr) =>
-    `w-full p-3 border rounded-xl text-xs ${hasErr ? 'border-red-500' : theme === 'dark' ? 'border-slate-700' : 'border-slate-300'} ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-900'}`;
-  const labelCls = 'text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1';
-  const Err = ({ m }) => (m ? <p className="text-[10px] font-semibold text-red-400 mt-1">{m}</p> : null);
+  const readFile = file =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
 
-  return (
-    <div className="max-w-4xl mx-auto py-8 animate-fadeIn space-y-10 text-left">
-      <h2 className="text-2xl font-bold flex items-center gap-2"><ShieldPlus className="text-amber-500"/> {currentText.adminTitle}</h2>
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
 
-      <div className={`p-8 rounded-3xl border shadow-xl space-y-4 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <h3 className="font-bold text-sm text-emerald-400 uppercase tracking-wider">{currentText.adminBookingsTitle}</h3>
-        {adminBookings.length === 0 ? (
-          <p className="text-xs font-medium text-slate-400">{currentText.noBookings}</p>
-        ) : (
-          <div className="space-y-3">
-            {adminBookings.map(b => (
-              <div key={b.id} className={`p-4 rounded-2xl border flex justify-between items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-                <div>
-                  <p className="font-bold text-xs">Car ID: {b.car_id} | User: {b.user_email}</p>
-                  <p className="text-xs font-medium text-slate-300 dark:text-slate-400 mt-0.5">Phone: {b.phone} | Comment: {b.comment || '-'}</p>
-                  <span className={`inline-block mt-2 px-2.5 py-0.5 text-[10px] rounded font-bold uppercase ${b.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : b.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                    Status: {b.status}
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => {
-                    fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'approved' })
-                    }).then(() => fetchAdminBookings());
-                  }} className="px-3 py-1.5 bg-emerald-500 text-white text-xs font-bold rounded-xl cursor-pointer">{currentText.approve}</button>
+  const uploadEditingImages = async event => {
+    const files = Array.from(event.target.files || []);
 
-                  <button onClick={() => {
-                    fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'rejected' })
-                    }).then(() => fetchAdminBookings());
-                  }} className="px-3 py-1.5 bg-amber-500 text-slate-950 text-xs font-bold rounded-xl cursor-pointer">{currentText.reject}</button>
+    if (!files.length) return;
 
-                  <button onClick={() => {
-                    if (confirm(lang === 'ua' ? 'Видалити бронювання з бази?' : 'Delete booking from DB?')) {
-                      fetch(`http://127.0.0.1:8000/api/admin/bookings/${b.id}`, { method: 'DELETE' })
-                        .then(() => fetchAdminBookings());
-                    }
-                  }} className="px-3 py-1.5 bg-red-500/10 text-red-400 text-xs font-bold rounded-xl cursor-pointer"><Trash2 size={14}/></button>
-                </div>
-              </div>
-            ))}
+    if (
+      files.some(file =>
+        !file.type.startsWith('image/') ||
+        file.size > 3 * 1024 * 1024
+      )
+    ) {
+      alert(
+        tr(
+          'Максимум 3 MB на одне фото.',
+          'Maximum 3 MB per photo.'
+        )
+      );
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      const images = await Promise.all(files.map(readFile));
+
+      setEditingCar(prev => {
+        const result = [
+          ...(prev.images || [prev.image_url]).filter(Boolean),
+          ...images
+        ].slice(0, 8);
+
+        return {
+          ...prev,
+          images: result,
+          image_url: result[0] || ''
+        };
+      });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const removeEditingImage = index => {
+    setEditingCar(prev => {
+      const images = (
+        prev.images || [prev.image_url]
+      ).filter((_, i) => i !== index);
+
+      if (!images.length) {
+        alert(
+          tr(
+            'Залиш хоча б одне фото.',
+            'Keep at least one photo.'
+          )
+        );
+
+        return prev;
+      }
+
+      return {
+        ...prev,
+        images,
+        image_url: images[0]
+      };
+    });
+  };
+
+  const removeNewImage = index => {
+    setNewCar(prev => {
+      const images = (prev.images || []).filter(
+        (_, i) => i !== index
+      );
+
+      return {
+        ...prev,
+        images,
+        image_url: images[0] || ''
+      };
+    });
+  };
+
+  const updateField = (editing, field, value) => {
+    const setter = editing ? setEditingCar : setNewCar;
+
+    setter(prev => {
+      const next = {
+        ...prev,
+        [field]: value
+      };
+
+      if (editing && (
+        field === 'brand' || field === 'model'
+      )) {
+        next.title = `${next.brand || ''} ${next.model || ''}`.trim();
+      }
+
+      if (editing && field === 'liquidity_score') {
+        next.custom_liquidity = value;
+      }
+
+      return next;
+    });
+  };
+
+  const renderField = (
+    editing,
+    field,
+    label,
+    type = 'text',
+    placeholder = ''
+  ) => {
+    const car = editing ? editingCar : newCar;
+    const errors = editing ? editErrors : addErrors;
+
+    const errorKey =
+      field === 'custom_liquidity' ||
+      field === 'liquidity_score'
+        ? 'liquidity'
+        : field;
+
+    return (
+      <div key={field}>
+        <label className={labelClass}>
+          {label}
+        </label>
+
+        <input
+          type={type}
+          placeholder={placeholder}
+          value={car?.[field] ?? ''}
+          onChange={event => {
+            const value =
+              type === 'number' &&
+              event.target.value !== ''
+                ? Number(event.target.value)
+                : event.target.value;
+
+            updateField(editing, field, value);
+          }}
+          className={inputClass(errors[errorKey])}
+        />
+
+        <FieldError message={errors[errorKey]} />
+      </div>
+    );
+  };
+
+  const renderSelect = (
+    editing,
+    field,
+    label,
+    options
+  ) => {
+    const car = editing ? editingCar : newCar;
+
+    return (
+      <div key={field}>
+        <label className={labelClass}>
+          {label}
+        </label>
+
+        <select
+          value={car?.[field] || options[0][0]}
+          onChange={event =>
+            updateField(editing, field, event.target.value)
+          }
+          className={inputClass(false)}
+        >
+          {options.map(([value, title]) => (
+            <option key={value} value={value}>
+              {title}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  };
+
+  const renderCarForm = editing => {
+    const car = editing ? editingCar : newCar;
+
+    if (editing && !editingCar) {
+      return (
+        <div className={`${panelClass} text-center py-16`}>
+          <Pencil
+            size={40}
+            className="mx-auto mb-4 text-emerald-500"
+          />
+
+          <h3 className="font-bold text-lg">
+            {tr(
+              'Вибери автомобіль для редагування',
+              'Choose a vehicle to edit'
+            )}
+          </h3>
+
+          <p className="text-sm text-slate-400 mt-2 mb-5">
+            {tr(
+              'Перейди у вкладку «Автомобілі» або «Архів» та натисни «Редагувати».',
+              'Open Cars or Archive and click Edit.'
+            )}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => changeTab('cars')}
+            className={greenButton}
+          >
+            {tr('Перейти до автомобілів', 'Go to cars')}
+          </button>
+        </div>
+      );
+    }
+
+    const images = (
+      Array.isArray(car.images) && car.images.length
+        ? car.images
+        : [car.image_url]
+    ).filter(Boolean);
+
+    const mileageUnit = editing
+      ? editingMileageUnit
+      : newCarMileageUnit;
+
+    return (
+      <form
+        noValidate
+        onSubmit={editing ? submitEdit : submitAdd}
+        className={`${panelClass} space-y-6`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-bold text-lg text-emerald-500">
+              {editing
+                ? `${currentText.editTitleHeader}: ${car.title}`
+                : currentText.addCarTitle}
+            </h3>
+
+            <p className="text-xs text-slate-400 mt-1">
+              {editing
+                ? tr(
+                    'Зміни характеристики та збережи автомобіль.',
+                    'Update vehicle specifications and save.'
+                  )
+                : tr(
+                    'Заповни інформацію для нового автомобіля.',
+                    'Fill in the details for the new vehicle.'
+                  )}
+            </p>
+          </div>
+
+          {editing && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingCar(null);
+                setEditTried(false);
+              }}
+              className={neutralButton}
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
+
+        {((editing ? editTried : addTried) &&
+          Object.keys(editing ? editErrors : addErrors).length > 0) && (
+          <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-xs font-bold">
+            {tr(
+              "Заповни всі обов'язкові поля та виправ помилки.",
+              'Complete all required fields and fix errors.'
+            )}
           </div>
         )}
-      </div>
 
-      <div className={`p-8 rounded-3xl border shadow-xl space-y-4 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <h3 className="font-bold text-sm text-emerald-400 uppercase tracking-wider">{currentText.adminCarsTitle}</h3>
-        <div className="space-y-2 max-h-60 overflow-y-auto">
-          {cars.map(c => (
-            <div key={c.id} className={`p-3 rounded-xl border flex justify-between items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <div className="flex items-center gap-3">
-                <img src={c.image_url} alt="" className="w-10 h-10 object-cover rounded-lg" />
-                <div>
-                  <p className="font-bold text-xs">{c.title} ({c.year})</p>
-                  <p className="text-[10px] font-semibold text-emerald-400">
-                    {c.discount > 0 ? (
-                      <>
-                        <span className="line-through text-slate-400 mr-1">{formatPrice(c.price)}</span>
-                        {formatPrice(Math.round(c.price * (1 - c.discount / 100)))}
-                        <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white rounded-full">-{c.discount}%</span>
-                      </>
-                    ) : formatPrice(c.price)} • {c.body_type}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => {
-                  setEditingCar({
-                    ...c,
-                    discount: c.discount ? c.discount : '',
-                    mileage: c.mileage_raw !== undefined ? c.mileage_raw : (typeof c.mileage === 'number' ? c.mileage : parseInt(String(c.mileage).replace(/\D/g, '')) || '')
-                  });
-                  setEditingMileageUnit(distanceUnit);
-                }} className="px-3 py-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition-all cursor-pointer">
-                  {currentText.edit}
-                </button>
-                <button onClick={() => {
-                  if (confirm(lang === 'ua' ? `Видалити ${c.title} з бази даних?` : `Delete ${c.title} from DB?`)) {
-                    fetch(`http://127.0.0.1:8000/api/admin/cars/${c.id}`, { method: 'DELETE' })
-                      .then(() => {
-                        alert(lang === 'ua' ? 'Авто успішно видалено!' : 'Car deleted successfully!');
-                        fetchCars();
-                      });
-                  }
-                }} className="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer">
-                  <Trash2 size={14}/>
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {renderField(
+            editing,
+            'brand',
+            currentText.carBrandLabel,
+            'text',
+            'BMW'
+          )}
+
+          {renderField(
+            editing,
+            'model',
+            currentText.carModelLabel,
+            'text',
+            '330i'
+          )}
+
+          {renderField(
+            editing,
+            'engine_volume',
+            tr("Об'єм двигуна *", 'Engine volume *'),
+            'text',
+            '2.0L'
+          )}
         </div>
-      </div>
 
-      {editingCar && (
-        <form noValidate onSubmit={submitEdit} className={`p-8 rounded-3xl border shadow-xl space-y-5 animate-fadeIn border-emerald-500/40 ${theme === 'dark' ? 'bg-[#0f172a] text-white' : 'bg-white text-slate-900'}`}>
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold text-sm text-emerald-400">{currentText.editTitleHeader}: {editingCar.title}</h3>
-            <button type="button" onClick={() => { setEditingCar(null); setEditTried(false); }} className="text-slate-400 hover:text-white"><X size={18}/></button>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {renderSelect(
+            editing,
+            'body_type',
+            currentText.bodyTypeLabel,
+            [
+              ['Sedan', currentText.sedan],
+              ['SUV', currentText.suv],
+              ['Coupe', currentText.coupe]
+            ]
+          )}
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelCls}>{currentText.carBrandLabel}</label>
-              <input type="text" value={editingCar.brand || ''} onChange={e=>setEditingCar({...editingCar, brand: e.target.value, title: `${e.target.value} ${editingCar.model || ''}`})} className={ic(editErrors.brand)} />
-              <Err m={editErrors.brand} />
-            </div>
-            <div>
-              <label className={labelCls}>{currentText.carModelLabel}</label>
-              <input type="text" value={editingCar.model || ''} onChange={e=>setEditingCar({...editingCar, model: e.target.value, title: `${editingCar.brand || ''} ${e.target.value}`})} className={ic(editErrors.model)} />
-              <Err m={editErrors.model} />
-            </div>
-            <div>
-              <label className={labelCls}>{lang === 'ua' ? 'Об\'єм двигуна *' : 'Engine Volume *'}</label>
-              <input type="text" value={editingCar.engine_volume || ''} onChange={e=>setEditingCar({...editingCar, engine_volume: e.target.value})} className={ic(editErrors.engine_volume)} />
-              <Err m={editErrors.engine_volume} />
-            </div>
-          </div>
+          {renderSelect(
+            editing,
+            'transmission',
+            currentText.transmissionLabel,
+            [
+              ['Automatic', currentText.automatic],
+              ['Manual', currentText.manual]
+            ]
+          )}
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelCls}>{currentText.bodyTypeLabel}</label>
-              <select value={editingCar.body_type || 'Sedan'} onChange={e=>setEditingCar({...editingCar, body_type: e.target.value})} className={ic(false)}>
-                <option value="Sedan">{currentText.sedan}</option>
-                <option value="SUV">{currentText.suv}</option>
-                <option value="Coupe">{currentText.coupe}</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>{currentText.transmissionLabel}</label>
-              <select value={editingCar.transmission || 'Automatic'} onChange={e=>setEditingCar({...editingCar, transmission: e.target.value})} className={ic(false)}>
-                <option value="Automatic">{currentText.automatic}</option>
-                <option value="Manual">{currentText.manual}</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>{lang === 'ua' ? 'Бейдж на фото (Badge) *' : 'Photo Badge *'}</label>
-              <input type="text" value={editingCar.badge || ''} onChange={e=>setEditingCar({...editingCar, badge: e.target.value})} className={ic(editErrors.badge)} />
-              <Err m={editErrors.badge} />
-            </div>
-          </div>
+          {renderField(
+            editing,
+            'badge',
+            tr('Бейдж на фото *', 'Photo badge *'),
+            'text',
+            'BEST MATCH'
+          )}
+        </div>
 
-          <div className="grid grid-cols-4 gap-4">
-            <div>
-              <label className={labelCls}>{currentText.yearLabel}</label>
-              <input type="number" value={editingCar.year ?? ''} onChange={e=>setEditingCar({...editingCar, year: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(editErrors.year)} />
-              <Err m={editErrors.year} />
-            </div>
-            <div>
-              <label className={labelCls}>{currentText.priceLabel}</label>
-              <input type="number" value={editingCar.price ?? ''} onChange={e=>setEditingCar({...editingCar, price: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(editErrors.price)} />
-              <Err m={editErrors.price} />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {renderField(
+            editing,
+            'year',
+            currentText.yearLabel,
+            'number',
+            '2024'
+          )}
 
-            <div>
-              <label className={`${labelCls} flex justify-between items-center`}>
-                <span>{currentText.mileageLabel}</span>
-                <select
-                  value={editingMileageUnit}
-                  onChange={(e) => setEditingMileageUnit(e.target.value)}
-                  className="bg-transparent text-emerald-400 font-bold text-[10px] outline-none cursor-pointer"
-                >
-                  <option value="mi" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>mi (милі)</option>
-                  <option value="km" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>km (км)</option>
-                </select>
+          {renderField(
+            editing,
+            'price',
+            currentText.priceLabel,
+            'number',
+            '45000'
+          )}
+
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className={labelClass}>
+                {currentText.mileageLabel}
               </label>
-              <input
-                type="number"
-                value={editingCar.mileage ?? ''}
-                onChange={e => {
-                  const val = e.target.value === '' ? '' : Number(e.target.value);
-                  setEditingCar({...editingCar, mileage: val});
-                }}
-                className={ic(editErrors.mileage)}
-              />
-              <Err m={editErrors.mileage} />
+
+              <select
+                value={mileageUnit}
+                onChange={event =>
+                  editing
+                    ? setEditingMileageUnit(event.target.value)
+                    : setNewCarMileageUnit(event.target.value)
+                }
+                className={`text-xs font-bold bg-transparent text-emerald-500 outline-none ${
+                  dark ? 'bg-slate-900' : 'bg-white'
+                }`}
+              >
+                <option value="mi">mi</option>
+                <option value="km">km</option>
+              </select>
             </div>
 
-            <div>
-              <label className={labelCls}>{currentText.liquidityLabel}</label>
-              <input type="number" value={editingCar.liquidity_score ?? ''} onChange={e => { const v = e.target.value === '' ? '' : Number(e.target.value); setEditingCar({...editingCar, liquidity_score: v, custom_liquidity: v}); }} className={ic(editErrors.liquidity)} />
-              <Err m={editErrors.liquidity} />
-            </div>
+            <input
+              type="number"
+              value={car.mileage ?? ''}
+              placeholder="10000"
+              onChange={event =>
+                updateField(
+                  editing,
+                  'mileage',
+                  event.target.value === ''
+                    ? ''
+                    : Number(event.target.value)
+                )
+              }
+              className={inputClass(
+                (editing ? editErrors : addErrors).mileage
+              )}
+            />
+
+            <FieldError
+              message={(editing ? editErrors : addErrors).mileage}
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {renderField(
+            editing,
+            editing ? 'liquidity_score' : 'custom_liquidity',
+            currentText.liquidityLabel,
+            'number',
+            '85'
+          )}
+        </div>
+
+        {editing && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {renderField(
+              true,
+              'discount',
+              tr(
+                'Знижка, % (необов’язково)',
+                'Discount, % (optional)'
+              ),
+              'number',
+              '0'
+            )}
+
             <div>
-              <label className={labelCls}>{tr('Знижка, % (необов\'язково)', 'Discount, % (optional)')}</label>
-              <input type="number" min="0" max="90" placeholder="0" value={editingCar.discount ?? ''} onChange={e=>setEditingCar({...editingCar, discount: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(editErrors.discount)} />
-              <Err m={editErrors.discount} />
-            </div>
-            <div>
-              <label className={labelCls}>{tr('Ціна зі знижкою', 'Price after discount')}</label>
-              <div className={`${ic(false)} flex items-center gap-2`}>
-                {Number(editingCar.discount) > 0 && Number(editingCar.price) > 0 ? (
+              <label className={labelClass}>
+                {tr('Ціна зі знижкою', 'Discounted price')}
+              </label>
+
+              <div className={`${inputClass(false)} min-h-10 flex items-center gap-2`}>
+                {toNumber(car.discount) > 0 ? (
                   <>
-                    <span className="line-through text-slate-400">{formatPrice(Number(editingCar.price))}</span>
-                    <span className="font-bold text-emerald-400">{formatPrice(Math.round(Number(editingCar.price) * (1 - Number(editingCar.discount) / 100)))}</span>
+                    <span className="line-through text-slate-400">
+                      {formatPrice(toNumber(car.price))}
+                    </span>
+
+                    <span className="text-emerald-500 font-bold">
+                      {formatPrice(
+                        Math.round(
+                          toNumber(car.price) *
+                          (1 - toNumber(car.discount) / 100)
+                        )
+                      )}
+                    </span>
                   </>
                 ) : (
-                  <span className="text-slate-400">{tr('Без знижки', 'No discount')}</span>
+                  <span className="text-slate-400">
+                    {tr('Без знижки', 'No discount')}
+                  </span>
                 )}
               </div>
             </div>
           </div>
-
-          <div>
-            <label className={labelCls}>{lang === 'ua' ? 'Фото автомобіля (незмінне)' : 'Car Image (locked)'}</label>
-            {editingCar.image_url && (
-              <div className="w-32 h-20 rounded-xl overflow-hidden border border-emerald-500/50 shadow opacity-90">
-                <img src={editingCar.image_url} alt="Preview" className="w-full h-full object-cover" />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className={labelCls}>{currentText.descriptionLabel}</label>
-            <textarea value={editingCar.description || ''} onChange={e=>setEditingCar({...editingCar, description: e.target.value})} className={`${ic(false)} h-24`} placeholder={lang === 'ua' ? 'Введіть опис авто...' : 'Enter car description...'} />
-          </div>
-
-          <div className="flex gap-3">
-            <button type="submit" className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer">
-              {currentText.saveChanges}
-            </button>
-            <button type="button" onClick={() => { setEditingCar(null); setEditTried(false); }} className={`px-5 py-3 rounded-xl text-xs font-bold border cursor-pointer ${theme === 'dark' ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-700'}`}>
-              {currentText.cancel}
-            </button>
-          </div>
-        </form>
-      )}
-
-      <form noValidate onSubmit={submitAdd} className={`p-8 rounded-3xl border shadow-xl space-y-5 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <h3 className="font-bold text-sm text-emerald-400">{currentText.addCarTitle}</h3>
-
-        {addTried && Object.keys(addErrors).length > 0 && (
-          <div className="p-3 rounded-xl border border-red-500/40 bg-red-500/10 text-red-400 text-xs font-bold">
-            {tr('Заповніть усі обов\'язкові поля та виправте помилки.', 'Please fill in all required fields and fix the errors.')}
-          </div>
         )}
 
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>{currentText.carBrandLabel}</label>
-            <input type="text" placeholder={lang === 'ua' ? "Наприклад: Audi" : "e.g. Audi"} value={newCar.brand} onChange={e=>setNewCar({...newCar, brand: e.target.value})} className={ic(addErrors.brand)} />
-            <Err m={addErrors.brand} />
-          </div>
-          <div>
-            <label className={labelCls}>{currentText.carModelLabel}</label>
-            <input type="text" placeholder={lang === 'ua' ? "Наприклад: A6" : "e.g. A6"} value={newCar.model} onChange={e=>setNewCar({...newCar, model: e.target.value})} className={ic(addErrors.model)} />
-            <Err m={addErrors.model} />
-          </div>
-          <div>
-            <label className={labelCls}>{lang === 'ua' ? 'Об\'єм двигуна *' : 'Engine Volume *'}</label>
-            <input type="text" placeholder="2.0L" value={newCar.engine_volume} onChange={e=>setNewCar({...newCar, engine_volume: e.target.value})} className={ic(addErrors.engine_volume)} />
-            <Err m={addErrors.engine_volume} />
-          </div>
-        </div>
+        <div className="space-y-3">
+          <label className={labelClass}>
+            {tr('Фотографії автомобіля', 'Vehicle photos')}
+          </label>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>{currentText.bodyTypeLabel}</label>
-            <select value={newCar.body_type} onChange={e=>setNewCar({...newCar, body_type: e.target.value})} className={ic(false)}>
-              <option value="Sedan">{currentText.sedan}</option>
-              <option value="SUV">{currentText.suv}</option>
-              <option value="Coupe">{currentText.coupe}</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>{currentText.transmissionLabel}</label>
-            <select value={newCar.transmission} onChange={e=>setNewCar({...newCar, transmission: e.target.value})} className={ic(false)}>
-              <option value="Automatic">{currentText.automatic}</option>
-              <option value="Manual">{currentText.manual}</option>
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>{lang === 'ua' ? 'Бейдж на фото (Badge) *' : 'Photo Badge *'}</label>
-            <input type="text" placeholder="" value={newCar.badge} onChange={e=>setNewCar({...newCar, badge: e.target.value})} className={ic(addErrors.badge)} />
-            <Err m={addErrors.badge} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-4 gap-4">
-          <div>
-            <label className={labelCls}>{currentText.yearLabel}</label>
-            <input type="number" placeholder="2024" value={newCar.year} onChange={e=>setNewCar({...newCar, year: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(addErrors.year)} />
-            <Err m={addErrors.year} />
-          </div>
-          <div>
-            <label className={labelCls}>{currentText.priceLabel}</label>
-            <input type="number" placeholder="45000" value={newCar.price} onChange={e=>setNewCar({...newCar, price: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(addErrors.price)} />
-            <Err m={addErrors.price} />
-          </div>
-
-          <div>
-            <label className={`${labelCls} flex justify-between items-center`}>
-              <span>{currentText.mileageLabel}</span>
-              <select
-                value={newCarMileageUnit}
-                onChange={(e) => setNewCarMileageUnit(e.target.value)}
-                className="bg-transparent text-emerald-400 font-bold text-[10px] outline-none cursor-pointer"
-              >
-                <option value="mi" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>mi (милі)</option>
-                <option value="km" className={theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}>km (км)</option>
-              </select>
-            </label>
+          {editing ? (
             <input
-              type="number"
-              placeholder="10000"
-              value={newCar.mileage}
-              onChange={e=>setNewCar({...newCar, mileage: e.target.value === '' ? '' : Number(e.target.value)})}
-              className={ic(addErrors.mileage)}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={uploadEditingImages}
+              className={inputClass(false)}
             />
-            <Err m={addErrors.mileage} />
+          ) : (
+            <div className={`p-4 border rounded-xl flex flex-wrap items-center gap-4 ${
+              dark
+                ? 'bg-slate-900 border-slate-700'
+                : 'bg-slate-50 border-slate-300'
+            }`}>
+              <label className="flex gap-2 items-center px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl cursor-pointer">
+                <Upload size={16} />
+                {currentText.browseFile}
+
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+
+              <span className="text-xs text-slate-400">
+                {images.length
+                  ? tr(
+                      `Завантажено фото: ${images.length}`,
+                      `Photos uploaded: ${images.length}`
+                    )
+                  : currentText.noFileChosen}
+              </span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            {images.map((url, index) => (
+              <div
+                key={index}
+                className="relative w-28 h-20"
+              >
+                <img
+                  src={url}
+                  alt={`Photo ${index + 1}`}
+                  className={`w-full h-full object-contain border rounded-xl ${
+                    dark
+                      ? 'bg-slate-950 border-slate-700'
+                      : 'bg-white border-slate-200'
+                  }`}
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    editing
+                      ? removeEditingImage(index)
+                      : removeNewImage(index)
+                  }
+                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center"
+                >
+                  <X size={12} />
+                </button>
+
+                {index === 0 && (
+                  <span className="absolute bottom-1 left-1 bg-emerald-500 text-white text-[9px] font-bold rounded px-1.5 py-0.5">
+                    {tr('Головне', 'Main')}
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
 
-          <div>
-            <label className={labelCls}>{currentText.liquidityLabel}</label>
-            <input type="number" placeholder="90" value={newCar.custom_liquidity} onChange={e=>setNewCar({...newCar, custom_liquidity: e.target.value === '' ? '' : Number(e.target.value)})} className={ic(addErrors.liquidity)} />
-            <Err m={addErrors.liquidity} />
-          </div>
+          <FieldError
+            message={(editing ? editErrors : addErrors).image}
+          />
         </div>
 
         <div>
-          <label className={labelCls}>{currentText.imageFileLabel}</label>
-          <div className={`flex items-center gap-4 p-3 border rounded-xl ${addErrors.image ? 'border-red-500' : theme === 'dark' ? 'border-slate-700' : 'border-slate-300'} ${theme === 'dark' ? 'bg-slate-900' : 'bg-slate-50'}`}>
-            <label className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold cursor-pointer transition-all">
-              <Upload size={16} />
-              {currentText.browseFile}
-              <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-            </label>
-            <span className="text-xs font-medium text-slate-400 truncate max-w-xs">
-              {newCar.image_url ? currentText.fileLoaded : currentText.noFileChosen}
-            </span>
+          <label className={labelClass}>
+            {currentText.descriptionLabel}
+          </label>
+
+          <textarea
+            rows={4}
+            value={car.description || ''}
+            onChange={event =>
+              updateField(
+                editing,
+                'description',
+                event.target.value
+              )
+            }
+            placeholder={tr(
+              'Введіть детальний опис автомобіля...',
+              'Enter vehicle description...'
+            )}
+            className={`${inputClass(false)} resize-y`}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="submit"
+            className={`${greenButton} flex-1 py-3`}
+          >
+            {editing
+              ? currentText.saveChanges
+              : currentText.addCarSubmit}
+          </button>
+
+          {editing && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingCar(null);
+                setEditTried(false);
+              }}
+              className={neutralButton}
+            >
+              {currentText.cancel}
+            </button>
+          )}
+        </div>
+      </form>
+    );
+  };
+
+  const BookingPhoto = ({ booking }) => {
+    const car = getCar(booking.car_id);
+
+    return (
+      <div className={`w-24 h-20 rounded-xl overflow-hidden shrink-0 flex items-center justify-center ${
+        dark ? 'bg-slate-950' : 'bg-white'
+      }`}>
+        {car?.image_url ? (
+          <img
+            src={car.image_url}
+            alt={car.title}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <span className="text-[10px] text-slate-400">
+            #{booking.car_id}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const renderBooking = booking => {
+    const car = getCar(booking.car_id);
+    const pending = booking.status === 'pending';
+    const approved = booking.status === 'approved';
+
+    return (
+      <div key={booking.id} className={rowClass}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-4 min-w-0">
+            <BookingPhoto booking={booking} />
+
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">
+                {getCarTitle(booking)}
+              </h3>
+
+              <p className="text-xs text-slate-400 mt-1 break-all">
+                {booking.user_email}
+              </p>
+
+              <p className="text-xs mt-1">
+                {tr('Телефон', 'Phone')}: {booking.phone}
+              </p>
+
+              {booking.comment && (
+                <p className="text-xs text-slate-400 mt-1">
+                  {booking.comment}
+                </p>
+              )}
+
+              <p className="text-[11px] text-slate-400 mt-2">
+                {displayDate(
+                  approved || booking.status === 'rejected'
+                    ? booking.decided_at
+                    : booking.created_at
+                )}
+              </p>
+
+              <span className={`inline-block mt-2 px-2.5 py-1 rounded-lg text-[10px] font-black ${
+                pending
+                  ? 'bg-amber-500/20 text-amber-500'
+                  : approved
+                    ? 'bg-emerald-500/20 text-emerald-500'
+                    : 'bg-red-500/20 text-red-400'
+              }`}>
+                {pending
+                  ? tr('Очікує підтвердження', 'Pending')
+                  : approved
+                    ? tr('Покупку підтверджено', 'Approved')
+                    : tr('Відхилено', 'Rejected')}
+              </span>
+            </div>
           </div>
-          <Err m={addErrors.image} />
-          {newCar.image_url && (
-            <div className="mt-3 w-32 h-20 rounded-xl overflow-hidden border border-emerald-500/50 shadow">
-              <img src={newCar.image_url} alt="Preview" className="w-full h-full object-cover" />
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {pending && (
+              <>
+                <button
+                  type="button"
+                  disabled={processingBookingId !== null}
+                  onClick={() =>
+                    decideBooking(booking.id, 'approved')
+                  }
+                  className={greenButton}
+                >
+                  {currentText.approve}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={processingBookingId !== null}
+                  onClick={() =>
+                    decideBooking(booking.id, 'rejected')
+                  }
+                  className={amberButton}
+                >
+                  {currentText.reject}
+                </button>
+              </>
+            )}
+
+            {approved && (
+              <div className="text-right">
+                <p className="text-emerald-500 font-black text-lg">
+                  {formatPrice(purchasePrice(booking))}
+                </p>
+
+                <p className="text-[10px] text-slate-400">
+                  {car?.is_archived
+                    ? tr('В архіві', 'Archived')
+                    : tr('Знову в каталозі', 'Relisted')}
+                </p>
+              </div>
+            )}
+
+            {!approved && (
+              <button
+                type="button"
+                disabled={processingBookingId !== null}
+                onClick={() => deleteBooking(booking.id)}
+                className={redButton}
+                title={tr('Видалити заявку', 'Delete request')}
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCarRow = car => {
+    const archived = Boolean(car.is_archived);
+    const sold = isSold(car.id);
+    const booked = car.booking_status === 'pending';
+
+    const discountedPrice = Math.round(
+      toNumber(car.price) *
+      (1 - toNumber(car.discount) / 100)
+    );
+
+    return (
+      <div key={car.id} className={rowClass}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-start gap-4 min-w-0">
+            <div className={`w-24 h-20 rounded-xl overflow-hidden shrink-0 ${
+              dark ? 'bg-slate-950' : 'bg-white'
+            }`}>
+              <img
+                src={car.image_url}
+                alt={car.title}
+                className={`w-full h-full object-contain ${
+                  archived ? 'grayscale' : ''
+                }`}
+              />
+            </div>
+
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm">
+                {car.title} ({car.year})
+              </h3>
+
+              <p className="text-[11px] text-slate-400 mt-1">
+                ID: {car.id} • {car.body_type} • {car.transmission}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {toNumber(car.discount) > 0 && (
+                  <span className="text-[11px] line-through text-slate-400">
+                    {formatPrice(car.price)}
+                  </span>
+                )}
+
+                <span className="font-black text-emerald-500 text-sm">
+                  {formatPrice(
+                    toNumber(car.discount) > 0
+                      ? discountedPrice
+                      : car.price
+                  )}
+                </span>
+
+                {toNumber(car.discount) > 0 && (
+                  <span className="text-[10px] bg-red-500 text-white font-bold rounded-full px-2 py-0.5">
+                    -{car.discount}%
+                  </span>
+                )}
+              </div>
+
+              {booked && (
+                <span className="inline-block text-[10px] text-amber-500 font-bold mt-2 mr-2">
+                  {tr('Заброньовано', 'Reserved')}
+                </span>
+              )}
+
+              {archived && (
+                <span className="inline-block text-[10px] text-slate-400 font-bold mt-2 mr-2">
+                  {tr('В архіві', 'Archived')}
+                </span>
+              )}
+
+              {sold && (
+                <span className="inline-block text-[10px] text-emerald-500 font-bold mt-2">
+                  {tr(
+                    'Є історія покупки',
+                    'Purchase history exists'
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {archived ? (
+              <button
+                type="button"
+                disabled={processingCarId !== null}
+                onClick={() => setArchived(car.id, false)}
+                className={greenButton}
+              >
+                {tr('Повернути в каталог', 'Restore')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={
+                  processingCarId !== null ||
+                  booked
+                }
+                onClick={() => setArchived(car.id, true)}
+                className={amberButton}
+              >
+                {tr('В архів', 'Archive')}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => openEdit(car)}
+              className={neutralButton}
+            >
+              <span className="flex items-center gap-2">
+                <Pencil size={14} />
+                {currentText.edit}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={processingCarId !== null}
+              onClick={() => deleteCar(car)}
+              className={redButton}
+              title={tr('Видалити автомобіль', 'Delete vehicle')}
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const currentTab = tabs.find(
+    tab => tab.id === activeTab
+  );
+
+  const renderListContent = () => {
+    if (activeTab === 'purchases') {
+      const total = approvedBookings.reduce(
+        (sum, booking) =>
+          sum + purchasePrice(booking),
+        0
+      );
+
+      return (
+        <div className="space-y-4">
+          <div className={`flex flex-wrap justify-between items-center gap-3 p-4 rounded-xl ${
+            dark
+              ? 'bg-emerald-500/10'
+              : 'bg-emerald-50'
+          }`}>
+            <div>
+              <p className="text-xs text-slate-400 font-bold">
+                {tr(
+                  'Загальна сума підтверджених покупок',
+                  'Total confirmed purchases'
+                )}
+              </p>
+
+              <p className="text-xl font-black text-emerald-500 mt-1">
+                {formatPrice(total)}
+              </p>
+            </div>
+
+            <div className="text-sm font-bold">
+              {approvedBookings.length}{' '}
+              {tr('покупок', 'purchases')}
+            </div>
+          </div>
+
+          {visibleItems.map(renderBooking)}
+        </div>
+      );
+    }
+
+    if (
+      activeTab === 'requests' ||
+      activeTab === 'rejected'
+    ) {
+      return (
+        <div className="space-y-3">
+          {visibleItems.map(renderBooking)}
+        </div>
+      );
+    }
+
+    if (
+      activeTab === 'cars' ||
+      activeTab === 'archive'
+    ) {
+      return (
+        <div className="space-y-3">
+          {visibleItems.map(renderCarRow)}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto py-8 space-y-6 animate-fadeIn text-left">
+      <div className="flex flex-wrap justify-between items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-black flex items-center gap-2">
+            <ShieldPlus className="text-amber-500" />
+            {currentText.adminTitle}
+          </h2>
+
+          <p className="text-xs text-slate-400 mt-2">
+            {tr(
+              'Керування автомобілями, заявками та покупками',
+              'Manage vehicles, bookings and purchases'
+            )}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={refreshing}
+          onClick={manualRefresh}
+          className={neutralButton}
+        >
+          <span className="flex items-center gap-2">
+            <RefreshCw
+              size={15}
+              className={refreshing ? 'animate-spin' : ''}
+            />
+            {tr('Оновити дані', 'Refresh data')}
+          </span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          {
+            title: tr('Нові заявки', 'New requests'),
+            value: pendingBookings.length,
+            color: 'text-amber-500'
+          },
+          {
+            title: tr('Покупки', 'Purchases'),
+            value: approvedBookings.length,
+            color: 'text-emerald-500'
+          },
+          {
+            title: tr('Активні авто', 'Active cars'),
+            value: activeCars.length,
+            color: 'text-emerald-500'
+          },
+          {
+            title: tr('В архіві', 'Archived'),
+            value: archivedCars.length,
+            color: 'text-slate-400'
+          }
+        ].map(item => (
+          <div key={item.title} className={panelClass}>
+            <p className="text-[11px] font-bold text-slate-400">
+              {item.title}
+            </p>
+
+            <p className={`text-2xl font-black mt-1 ${item.color}`}>
+              {item.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className={`p-2 rounded-2xl border flex flex-wrap gap-2 ${
+        dark
+          ? 'bg-[#0f172a] border-slate-800'
+          : 'bg-white border-slate-200'
+      }`}>
+        {tabs.map(tab => {
+          const Icon = tab.icon;
+          const selected = activeTab === tab.id;
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => changeTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-3 text-xs font-bold rounded-xl transition-all ${
+                selected
+                  ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                  : dark
+                    ? 'text-slate-300 hover:bg-slate-800'
+                    : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Icon size={16} />
+
+              {tab.label}
+
+              {tab.count !== undefined && (
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  selected
+                    ? 'bg-white/20 text-white'
+                    : dark
+                      ? 'bg-slate-800 text-slate-300'
+                      : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {searchableTabs.includes(activeTab) && (
+        <div className={`${panelClass} space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-base">
+                {currentTab?.label}
+              </h3>
+
+              <p className="text-xs text-slate-400 mt-1">
+                {tr('Знайдено записів', 'Records found')}:{' '}
+                {filteredItems.length}
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+
+                <input
+                  type="search"
+                  value={search}
+                  onChange={event => {
+                    setSearch(event.target.value);
+                    setPage(1);
+                  }}
+                  placeholder={tr(
+                    'Пошук за назвою, ID, email...',
+                    'Search by name, ID, email...'
+                  )}
+                  className={`${inputClass(false)} pl-10 sm:w-72`}
+                />
+              </div>
+
+              <select
+                value={pageSize}
+                onChange={event => {
+                  setPageSize(Number(event.target.value));
+                  setPage(1);
+                }}
+                className={`${inputClass(false)} sm:w-28`}
+              >
+                <option value={12}>12</option>
+                <option value={24}>24</option>
+                <option value={48}>48</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+          </div>
+
+          {filteredItems.length === 0 ? (
+            <div className="py-14 text-center">
+              <Search
+                size={38}
+                className="mx-auto mb-3 text-slate-400 opacity-50"
+              />
+
+              <p className="font-bold text-sm">
+                {tr(
+                  'Записів не знайдено',
+                  'No records found'
+                )}
+              </p>
+
+              <p className="text-xs text-slate-400 mt-2">
+                {search
+                  ? tr(
+                      'Спробуй інший пошуковий запит.',
+                      'Try a different search.'
+                    )
+                  : tr(
+                      'У цій вкладці поки немає записів.',
+                      'There are no records in this tab.'
+                    )}
+              </p>
+            </div>
+          ) : (
+            renderListContent()
+          )}
+
+          {filteredItems.length > 0 && (
+            <div className={`flex flex-wrap items-center justify-between gap-3 pt-4 border-t ${
+              dark
+                ? 'border-slate-800'
+                : 'border-slate-200'
+            }`}>
+              <p className="text-xs text-slate-400">
+                {tr('Показано', 'Showing')}{' '}
+                {startIndex + 1}–
+                {Math.min(
+                  startIndex + pageSize,
+                  filteredItems.length
+                )}{' '}
+                {tr('із', 'of')}{' '}
+                {filteredItems.length}
+              </p>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={safePage <= 1}
+                  onClick={() =>
+                    setPage(value => Math.max(1, value - 1))
+                  }
+                  className={neutralButton}
+                >
+                  <span className="flex items-center gap-1">
+                    <ChevronLeft size={15} />
+                    {tr('Назад', 'Previous')}
+                  </span>
+                </button>
+
+                <span className="text-xs font-bold whitespace-nowrap">
+                  {safePage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={safePage >= totalPages}
+                  onClick={() =>
+                    setPage(value =>
+                      Math.min(totalPages, value + 1)
+                    )
+                  }
+                  className={neutralButton}
+                >
+                  <span className="flex items-center gap-1">
+                    {tr('Далі', 'Next')}
+                    <ChevronRight size={15} />
+                  </span>
+                </button>
+              </div>
             </div>
           )}
         </div>
+      )}
 
-        <div>
-          <label className={labelCls}>{currentText.descriptionLabel}</label>
-          <textarea placeholder={lang === 'ua' ? "Введіть детальний опис авто..." : "Enter car description..."} value={newCar.description} onChange={e=>setNewCar({...newCar, description: e.target.value})} className={`${ic(false)} h-24`} />
-        </div>
-
-        <button type="submit" className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer">{currentText.addCarSubmit}</button>
-      </form>
+      {activeTab === 'add' && renderCarForm(false)}
+      {activeTab === 'edit' && renderCarForm(true)}
     </div>
   );
 }

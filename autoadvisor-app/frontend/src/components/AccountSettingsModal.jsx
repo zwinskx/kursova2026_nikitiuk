@@ -102,8 +102,7 @@ export default function AccountSettingsModal() {
                       </div>
                       <div>
                         <label className="text-xs font-semibold block mb-1">{currentText.fullName}</label>
-                        <input type="text" value={settingsName} disabled className={lockedCls} />
-                        <p className="text-[10px] opacity-60 mt-1">
+                       <input type="text" value={settingsName} onChange={(e) => setSettingsName(e.target.value)}  minLength={2}  maxLength={255} required className={inputCls}/> <p className="text-[10px] opacity-60 mt-1">
                           {ua ? "Ім'я та прізвище змінити не можна." : 'First and last name cannot be changed.'}
                         </p>
                       </div>
