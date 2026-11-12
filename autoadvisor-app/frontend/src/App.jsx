@@ -1,5 +1,6 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import ImgLogo from './assets/logo.png';
 
 import {
   LayoutDashboard,
@@ -41,8 +42,119 @@ import RecentPage from './pages/RecentPage';
 import ReviewsPage from './pages/ReviewsPage';
 import AdminPage from './pages/AdminPage';
 
+function useAdaptiveLogo() {
+  const [darkLogo, setDarkLogo] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const image = new Image();
+
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+
+        const ctx = canvas.getContext('2d', {
+          willReadFrequently: true
+        });
+
+        if (!ctx) return;
+
+        ctx.drawImage(image, 0, 0);
+
+        const imageData = ctx.getImageData(
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        const pixels = imageData.data;
+
+        let minY = canvas.height;
+        let maxY = 0;
+
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            const offset = (y * canvas.width + x) * 4;
+            const alpha = pixels[offset + 3];
+
+            if (alpha > 25) {
+              minY = Math.min(minY, y);
+              maxY = Math.max(maxY, y);
+            }
+          }
+        }
+
+        const contentHeight = Math.max(1, maxY - minY);
+
+        const textStartY = minY + contentHeight * 0.69;
+
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            const offset = (y * canvas.width + x) * 4;
+
+            const r = pixels[offset];
+            const g = pixels[offset + 1];
+            const b = pixels[offset + 2];
+            const a = pixels[offset + 3];
+
+            if (a === 0) continue;
+
+            const isGreen =
+              g > r * 1.16 &&
+              g > b * 1.08 &&
+              g > 45;
+
+            const isTextArea = y >= textStartY;
+
+            if (isTextArea) {
+              pixels[offset] = 16;
+              pixels[offset + 1] = 185;
+              pixels[offset + 2] = 129;
+            } else if (isGreen) {
+              pixels[offset] = r;
+              pixels[offset + 1] = g;
+              pixels[offset + 2] = b;
+            } else {
+              pixels[offset] = 255;
+              pixels[offset + 1] = 255;
+              pixels[offset + 2] = 255;
+            }
+          }
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        if (!cancelled) {
+          setDarkLogo(canvas.toDataURL('image/png'));
+        }
+      } catch (error) {
+        console.error('Logo color processing error:', error);
+      }
+    };
+
+    image.onerror = () => {
+      console.error('Unable to load AutoAdvisor logo');
+    };
+
+    image.src = ImgLogo;
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return darkLogo;
+}
+
 function AppContent() {
   const { theme, setTheme } = useTheme();
+
+  const darkLogo = useAdaptiveLogo();
 
   const {
     activeTab,
@@ -77,18 +189,22 @@ function AppContent() {
 
   const dark = theme === 'dark';
 
-  const formatMileage = (mileage) => {
+  const formatMileage = mileage => {
     const value = Number(mileage) || 0;
 
     if (distanceUnit === 'km') {
       return `${Math.round(
         value * 1.60934
-      ).toLocaleString(lang === 'ua' ? 'uk-UA' : 'en-US')} км`;
+      ).toLocaleString(
+        lang === 'ua' ? 'uk-UA' : 'en-US'
+      )} км`;
     }
 
     return `${Math.round(
       value
-    ).toLocaleString(lang === 'ua' ? 'uk-UA' : 'en-US')} mi`;
+    ).toLocaleString(
+      lang === 'ua' ? 'uk-UA' : 'en-US'
+    )} mi`;
   };
 
   const savedCount = cars.filter(
@@ -100,7 +216,9 @@ function AppContent() {
   ).length;
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(
+      window.location.search
+    );
 
     const carId = Number(params.get('car'));
     const requestedTab = params.get('tab');
@@ -111,7 +229,9 @@ function AppContent() {
 
     if (!carId || !cars.length) return;
 
-    const car = cars.find(item => item.id === carId);
+    const car = cars.find(
+      item => item.id === carId
+    );
 
     if (car) {
       setActiveTab('discover');
@@ -125,7 +245,9 @@ function AppContent() {
       window.history.replaceState(
         {},
         '',
-        `${window.location.pathname}${query ? `?${query}` : ''}`
+        `${window.location.pathname}${
+          query ? `?${query}` : ''
+        }`
       );
     }
   }, [cars]);
@@ -153,12 +275,14 @@ function AppContent() {
       count: savedCount
     },
     ...(user
-      ? [{
-          id: 'recent',
-          icon: History,
-          label: currentText.recent,
-          count: recentCount
-        }]
+      ? [
+          {
+            id: 'recent',
+            icon: History,
+            label: currentText.recent,
+            count: recentCount
+          }
+        ]
       : []),
     {
       id: 'reviews',
@@ -166,11 +290,13 @@ function AppContent() {
       label: currentText.reviews
     },
     ...(user?.is_admin
-      ? [{
-          id: 'admin',
-          icon: ShieldPlus,
-          label: currentText.admin
-        }]
+      ? [
+          {
+            id: 'admin',
+            icon: ShieldPlus,
+            label: currentText.admin
+          }
+        ]
       : [])
   ];
 
@@ -190,33 +316,54 @@ function AppContent() {
   };
 
   return (
-    <div className={
-      dark
-        ? 'dark bg-[#0b0f19] text-slate-100 min-h-screen flex font-sans'
-        : 'bg-slate-100 text-slate-900 min-h-screen flex font-sans'
-    }>
-      <aside className={`w-64 h-screen sticky top-0 flex flex-col justify-between p-6 border-r transition-colors z-30 shadow-2xl ${
+    <div
+      className={
         dark
-          ? 'bg-[#0d1322] border-slate-800 text-slate-200'
-          : 'bg-slate-50 border-slate-200 text-slate-800'
-      }`}>
+          ? 'dark bg-[#0b0f19] text-slate-100 min-h-screen flex font-sans'
+          : 'bg-slate-100 text-slate-900 min-h-screen flex font-sans'
+      }
+    >
+      <aside
+        className={`w-64 h-screen sticky top-0 flex flex-col justify-between p-6 border-r transition-colors z-30 shadow-2xl ${
+          dark
+            ? 'bg-[#0d1322] border-slate-800 text-slate-200'
+            : 'bg-slate-50 border-slate-200 text-slate-800'
+        }`}
+      >
         <div>
-          <div className="flex items-center gap-3 mb-10">
-            <div className="w-10 h-10 bg-gradient-to-tr from-emerald-600 to-emerald-400 rounded-2xl flex items-center justify-center text-white font-bold shadow-lg shadow-emerald-500/30">
-              📈
-            </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            title="AutoAdvisor"
+            className="w-full flex items-center gap-2 mb-10 bg-transparent border-0 outline-none cursor-pointer text-left"
+          >
+            <img
+              src={dark ? (darkLogo || ImgLogo) : ImgLogo}
+              alt="AutoAdvisor Logo"
+              draggable={false}
+              className="w-[76px] h-[76px] shrink-0 object-contain"
+            />
 
-            <span className={`text-xl font-extrabold tracking-wide ${
-              dark ? 'text-white' : 'text-slate-900'
-            }`}>
-              AutoAdvisor
+            <span
+              className={`text-[18px] font-extrabold tracking-tight whitespace-nowrap ${
+                dark
+                  ? 'text-white'
+                  : 'text-slate-900'
+              }`}
+            >
+              Auto
+              <span className="text-emerald-500">
+                Advisor
+              </span>
             </span>
-          </div>
+          </button>
 
           <nav className="space-y-1.5 text-left">
             {navigation.map(item => {
               const Icon = item.icon;
-              const selected = activeTab === item.id;
+
+              const selected =
+                activeTab === item.id;
 
               return (
                 <button
@@ -233,7 +380,10 @@ function AppContent() {
                         : 'hover:bg-slate-200/80 text-slate-800'
                   }`}
                 >
-                  <Icon size={18} className="shrink-0" />
+                  <Icon
+                    size={18}
+                    className="shrink-0"
+                  />
 
                   <span className="leading-tight">
                     {item.label}
@@ -250,9 +400,13 @@ function AppContent() {
           </nav>
         </div>
 
-        <div className={`pt-6 border-t space-y-3 ${
-          dark ? 'border-slate-800' : 'border-slate-200'
-        }`}>
+        <div
+          className={`pt-6 border-t space-y-3 ${
+            dark
+              ? 'border-slate-800'
+              : 'border-slate-200'
+          }`}
+        >
           <button
             type="button"
             onClick={openSettings}
@@ -262,7 +416,11 @@ function AppContent() {
                 : 'hover:bg-slate-200/80 text-slate-800'
             }`}
           >
-            <Settings size={18} className="shrink-0" />
+            <Settings
+              size={18}
+              className="shrink-0"
+            />
+
             <span className="leading-tight">
               {currentText.settings}
             </span>
@@ -284,15 +442,21 @@ function AppContent() {
                 )}
 
                 <div className="overflow-hidden flex-1">
-                  <p className={`text-xs font-bold truncate ${
-                    dark ? 'text-white' : 'text-slate-900'
-                  }`}>
+                  <p
+                    className={`text-xs font-bold truncate ${
+                      dark
+                        ? 'text-white'
+                        : 'text-slate-900'
+                    }`}
+                  >
                     {user.display_name}
                   </p>
 
                   <button
                     type="button"
-                    onClick={() => setIsAccountSwitcherOpen(true)}
+                    onClick={() =>
+                      setIsAccountSwitcherOpen(true)
+                    }
                     className="text-[10px] text-emerald-400 hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
                   >
                     <UserCheck size={10} />
@@ -315,14 +479,18 @@ function AppContent() {
 
             <button
               type="button"
-              onClick={() => setTheme(dark ? 'light' : 'dark')}
+              onClick={() =>
+                setTheme(dark ? 'light' : 'dark')
+              }
               className={`p-2.5 rounded-xl border ml-2 transition-transform hover:scale-110 ${
                 dark
                   ? 'bg-slate-800 border-slate-700 text-white'
                   : 'bg-white border-slate-300 text-slate-800'
               }`}
             >
-              {dark ? <Sun size={16} /> : <Moon size={16} />}
+              {dark
+                ? <Sun size={16} />
+                : <Moon size={16} />}
             </button>
           </div>
         </div>
@@ -331,9 +499,13 @@ function AppContent() {
       <main className="flex-1 p-10 overflow-y-auto flex flex-col justify-between min-h-screen text-left relative">
         <div>
           <div className="flex justify-between items-center mb-8">
-            <span className={`text-xs uppercase tracking-widest font-bold text-left ${
-              dark ? 'text-slate-300' : 'text-slate-600'
-            }`}>
+            <span
+              className={`text-xs uppercase tracking-widest font-bold text-left ${
+                dark
+                  ? 'text-slate-300'
+                  : 'text-slate-600'
+              }`}
+            >
               Workspace /{' '}
               <span className="text-emerald-400 font-extrabold">
                 {activeTab}
@@ -351,18 +523,41 @@ function AppContent() {
             )}
           </div>
 
-          {activeTab === 'overview' && <OverviewPage />}
-          {activeTab === 'discover' && <DiscoverPage />}
-          {activeTab === 'analytics' && <AnalyticsPage />}
-          {activeTab === 'saved' && <SavedPage />}
-          {activeTab === 'recent' && <RecentPage />}
-          {activeTab === 'reviews' && <ReviewsPage />}
-          {activeTab === 'admin' && user?.is_admin && <AdminPage />}
+          {activeTab === 'overview' && (
+            <OverviewPage />
+          )}
+
+          {activeTab === 'discover' && (
+            <DiscoverPage />
+          )}
+
+          {activeTab === 'analytics' && (
+            <AnalyticsPage />
+          )}
+
+          {activeTab === 'saved' && (
+            <SavedPage />
+          )}
+
+          {activeTab === 'recent' && (
+            <RecentPage />
+          )}
+
+          {activeTab === 'reviews' && (
+            <ReviewsPage />
+          )}
+
+          {activeTab === 'admin' &&
+            user?.is_admin && (
+              <AdminPage />
+            )}
         </div>
 
         <CarComparisonModal
           isOpen={isFullComparisonOpen}
-          onClose={() => setIsFullComparisonOpen(false)}
+          onClose={() =>
+            setIsFullComparisonOpen(false)
+          }
           car1={compareCar1}
           car2={compareCar2}
           theme={theme}
@@ -374,7 +569,9 @@ function AppContent() {
           <CarDetailModal
             car={selectedCarForModal}
             isOpen={Boolean(selectedCarForModal)}
-            onClose={() => setSelectedCarForModal(null)}
+            onClose={() =>
+              setSelectedCarForModal(null)
+            }
             theme={theme}
             lang={lang}
             formatPrice={formatPrice}
@@ -391,16 +588,24 @@ function AppContent() {
         <AccountSwitcherModal />
         <AccountSettingsModal />
 
-        <footer className={`mt-16 pt-6 border-t text-xs font-medium flex justify-between items-center ${
-          dark
-            ? 'border-slate-800 text-slate-400'
-            : 'border-slate-200 text-slate-600'
-        }`}>
+        <footer
+          className={`mt-16 pt-6 border-t text-xs font-medium flex justify-between items-center ${
+            dark
+              ? 'border-slate-800 text-slate-400'
+              : 'border-slate-200 text-slate-600'
+          }`}
+        >
           <p>{currentText.footerRights}</p>
 
           <div className="flex gap-6">
-            <span>📞 +38 (068) 331-78-25</span>
-            <span>✉️ support.autoadvisor@gmail.com</span>
+            <span>
+              📞 +38 (068) 331-78-25
+            </span>
+
+            <span>
+              ✉️ support.autoadvisor@gmail.com
+            </span>
+
             <span>
               📍 {lang === 'ua'
                 ? 'м. Хмельницький, вул. Залізняка, 34/1'

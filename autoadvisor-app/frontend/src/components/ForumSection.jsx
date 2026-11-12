@@ -18,18 +18,19 @@ export default function ForumSection() {
 
   const [replyTo, setReplyTo] = useState(null);
   const [replyText, setReplyText] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
+  const [sendingReply, setSendingReply] = useState(false);
 
-  // Дерево з плоского списку
   const tree = useMemo(() => {
     const byParent = {};
-    forumMessages.forEach((m) => {
+    (Array.isArray(forumMessages) ? forumMessages : []).forEach((m) => {
       const key = m.parent_id ?? 'root';
       (byParent[key] = byParent[key] || []).push(m);
     });
     return byParent;
   }, [forumMessages]);
 
-  const rootPosts = [...(tree.root || [])].reverse(); // нові зверху
+  const rootPosts = [...(tree.root || [])].reverse();
 
   const openLogin = () => {
     setAuthMode('login');
@@ -37,42 +38,75 @@ export default function ForumSection() {
   };
 
   const inputCls = `w-full p-3.5 border rounded-2xl text-xs font-medium outline-none resize-none ${
-    dark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+    dark
+      ? 'bg-slate-900 border-slate-700 text-white'
+      : 'bg-slate-50 border-slate-300 text-slate-900'
   }`;
 
   const formatDate = (iso) =>
     iso
       ? new Date(iso).toLocaleString(ua ? 'uk-UA' : 'en-US', {
-          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
         })
       : '';
 
   const renderAvatar = (m) => {
     const src = forumAvatars?.[m.user_email];
     return src ? (
-      <img src={src} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 border border-emerald-500/50" />
+      <img
+        src={src}
+        alt=""
+        className="w-8 h-8 rounded-full object-cover shrink-0 border border-emerald-500/50"
+      />
     ) : (
       <div className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-xs shrink-0">
-        {m.author?.[0]?.toUpperCase()}
+        {m.author?.[0]?.toUpperCase() || '?'}
       </div>
     );
   };
 
   const submitReply = async (parentId) => {
-    const ok = await postForumMessage(replyText, parentId);
-    if (ok) {
-      setReplyTo(null);
-      setReplyText('');
+    if (sendingReply || !replyText.trim()) return;
+    setSendingReply(true);
+    try {
+      const ok = await postForumMessage(replyText, parentId);
+      if (ok) {
+        setReplyTo(null);
+        setReplyText('');
+      }
+    } finally {
+      setSendingReply(false);
+    }
+  };
+
+  const deleteMessage = async (messageId) => {
+    if (deletingId !== null) return;
+    setDeletingId(messageId);
+    try {
+      const ok = await handleDeleteForumMessage(messageId);
+      if (ok && replyTo === messageId) {
+        setReplyTo(null);
+        setReplyText('');
+      }
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const renderPost = (m, depth = 0) => {
     const children = tree[m.id] || [];
-    const canDelete = user && (m.user_email === user.email || user.is_admin);
+    const canDelete = Boolean(user) && (
+      Boolean(user.is_admin) ||
+      String(m.user_email || '').toLowerCase() === String(user.email || '').toLowerCase()
+    );
 
     return (
       <div key={m.id} className={depth > 0 ? 'ml-5 pl-4 border-l border-slate-500/30' : ''}>
-        <div className={`p-4 rounded-2xl border mb-3 ${dark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+        <div className={`p-4 rounded-2xl border mb-3 ${
+          dark
+            ? 'bg-slate-900 border-slate-800 text-white'
+            : 'bg-white border-slate-200 text-slate-900'
+        }`}>
           <div className="flex items-center gap-2.5 mb-2">
             {renderAvatar(m)}
             <div className="flex-1 min-w-0">
@@ -81,20 +115,29 @@ export default function ForumSection() {
             </div>
             {canDelete && (
               <button
-                onClick={() => handleDeleteForumMessage(m.id)}
-                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 cursor-pointer"
+                type="button"
+                onClick={() => deleteMessage(m.id)}
+                disabled={deletingId !== null}
+                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 title={ua ? 'Видалити' : 'Delete'}
+                aria-label={ua ? 'Видалити повідомлення' : 'Delete message'}
               >
                 <Trash2 size={14} />
               </button>
             )}
           </div>
 
-          <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left">{m.message}</p>
+          <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left">
+            {m.message}
+          </p>
 
           {user && depth < MAX_DEPTH && (
             <button
-              onClick={() => { setReplyTo(replyTo === m.id ? null : m.id); setReplyText(''); }}
+              type="button"
+              onClick={() => {
+                setReplyTo(replyTo === m.id ? null : m.id);
+                setReplyText('');
+              }}
               className="mt-3 text-[11px] font-bold text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
               <Reply size={12} /> {ua ? 'Відповісти' : 'Reply'}
@@ -113,15 +156,22 @@ export default function ForumSection() {
               />
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => submitReply(m.id)}
-                  disabled={!replyText.trim()}
+                  disabled={!replyText.trim() || sendingReply}
                   className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
                 >
                   <Send size={12} /> {ua ? 'Надіслати' : 'Send'}
                 </button>
                 <button
-                  onClick={() => setReplyTo(null)}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer ${dark ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-800'}`}
+                  type="button"
+                  onClick={() => {
+                    setReplyTo(null);
+                    setReplyText('');
+                  }}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                    dark ? 'bg-slate-800 text-slate-200' : 'bg-slate-200 text-slate-800'
+                  }`}
                 >
                   <X size={12} /> {ua ? 'Скасувати' : 'Cancel'}
                 </button>
@@ -136,7 +186,11 @@ export default function ForumSection() {
   };
 
   return (
-    <div className={`border rounded-3xl p-8 mb-12 shadow-2xl text-left ${dark ? 'bg-[#121824] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+    <div className={`border rounded-3xl p-8 mb-12 shadow-2xl text-left ${
+      dark
+        ? 'bg-[#121824] border-slate-800 text-white'
+        : 'bg-white border-slate-200 text-slate-900'
+    }`}>
       <span className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider">
         {ua ? 'Спільнота' : 'Community'}
       </span>
@@ -151,7 +205,9 @@ export default function ForumSection() {
           <textarea
             value={forumInput}
             onChange={(e) => setForumInput(e.target.value)}
-            placeholder={ua ? 'Поділіться думкою або поставте питання...' : 'Share a thought or ask a question...'}
+            placeholder={ua
+              ? 'Поділіться думкою або поставте питання...'
+              : 'Share a thought or ask a question...'}
             className={`${inputCls} h-24`}
             maxLength={1000}
           />
@@ -164,12 +220,20 @@ export default function ForumSection() {
           </button>
         </form>
       ) : (
-        <div className={`mb-8 p-5 rounded-2xl border flex items-center justify-between gap-4 flex-wrap ${dark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
+        <div className={`mb-8 p-5 rounded-2xl border flex items-center justify-between gap-4 flex-wrap ${
+          dark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'
+        }`}>
           <div className="flex items-center gap-2 text-xs font-semibold opacity-90">
             <Lock size={16} className="text-emerald-400" />
-            {ua ? 'Писати та відповідати можуть лише зареєстровані користувачі.' : 'Only registered users can post and reply.'}
+            {ua
+              ? 'Писати та відповідати можуть лише зареєстровані користувачі.'
+              : 'Only registered users can post and reply.'}
           </div>
-          <button onClick={openLogin} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer">
+          <button
+            type="button"
+            onClick={openLogin}
+            className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer"
+          >
             {ua ? 'Увійти' : 'Sign in'}
           </button>
         </div>

@@ -1,11 +1,18 @@
+
 import os
 import re
 import time
 import secrets
+import base64
+import hashlib
+import hmac
+import json
+
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
+from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel, EmailStr
@@ -15,6 +22,83 @@ from .models import User, Car, CarImage, Review, Booking, ForumMessage
 from .decision_tree import evaluate_car_liquidity
 from .mailer import send_email_alert, send_reset_code_email
 from .ai_chat import router as ai_router
+
+load_dotenv()
+
+_AUTH_SECRET = os.getenv("AUTOADVISOR_AUTH_SECRET") or secrets.token_urlsafe(48)
+_TOKEN_MAX_AGE = 7 * 24 * 60 * 60
+
+
+def _issue_access_token(user: User) -> str:
+    payload = {
+        "uid": user.id,
+        "iat": int(time.time())
+    }
+
+    raw = base64.urlsafe_b64encode(
+        json.dumps(
+            payload,
+            separators=(",", ":")
+        ).encode("utf-8")
+    ).rstrip(b"=").decode("ascii")
+
+    signature = hmac.new(
+        _AUTH_SECRET.encode("utf-8"),
+        raw.encode("ascii"),
+        hashlib.sha256
+    ).hexdigest()
+
+    return f"{raw}.{signature}"
+
+
+def _forum_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db)
+) -> User:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Увійдіть повторно, щоб видаляти повідомлення."
+        )
+
+    token = authorization[7:].strip()
+
+    try:
+        encoded, provided_signature = token.split(".", 1)
+
+        expected_signature = hmac.new(
+            _AUTH_SECRET.encode("utf-8"),
+            encoded.encode("ascii"),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(expected_signature, provided_signature):
+            raise ValueError("Invalid signature")
+
+        padded = encoded + "=" * (-len(encoded) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+
+        age = time.time() - int(payload["iat"])
+
+        if age < 0 or age > _TOKEN_MAX_AGE:
+            raise ValueError("Expired token")
+
+        user_id = int(payload["uid"])
+    except (ValueError, TypeError, KeyError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=401,
+            detail="Сесія недійсна. Увійдіть повторно."
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Користувача не знайдено."
+        )
+
+    return user
 
 
 Base.metadata.create_all(bind=engine)
@@ -45,6 +129,7 @@ def user_payload(user, message: str):
         "message": message,
         "id": user.id,
         "user_id": user.id,
+        "access_token": _issue_access_token(user),
         "email": user.email,
         "is_admin": bool(user.is_admin),
         "display_name": user.display_name,
@@ -508,7 +593,7 @@ def update_preferences(
 
     return {
         "message": "Налаштування успішно збережено!",
-        "user": user_payload(user, "") 
+        "user": user_payload(user, "")
     }
 
 
@@ -548,7 +633,6 @@ def get_recommendations(
         .options(joinedload(Car.images))
         .filter(Car.is_deleted == False)
     )
-
 
     if budget_max:
         query = query.filter(Car.price <= budget_max)
@@ -818,6 +902,7 @@ def delete_car(
         "car_id": car.id
     }
 
+
 @app.get("/api/bookings")
 def get_bookings(
     db: Session = Depends(get_db)
@@ -924,7 +1009,6 @@ def create_booking(
         db.refresh(booking)
 
         return booking_payload(booking)
-
     except Exception:
         db.rollback()
         raise
@@ -989,9 +1073,7 @@ def update_booking_status(
             booking.status = "approved"
             booking.decided_at = datetime.utcnow()
             booking.purchase_price = float(car.price)
-
             car.is_archived = True
-
         else:
             booking.status = "rejected"
             booking.decided_at = datetime.utcnow()
@@ -1001,7 +1083,6 @@ def update_booking_status(
         db.refresh(booking)
 
         return booking_payload(booking)
-
     except Exception:
         db.rollback()
         raise
@@ -1057,7 +1138,6 @@ def set_car_archive(
             "is_archived": bool(car.is_archived),
             "booking_status": None
         }
-
     except Exception:
         db.rollback()
         raise
@@ -1226,48 +1306,43 @@ def post_forum(
 @app.delete("/api/forum/{message_id}")
 def delete_forum_message(
     message_id: int,
-    email: str,
+    current_user: User = Depends(_forum_current_user),
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(
-        User.email == email
-    ).first()
-
     message = db.query(ForumMessage).filter(
         ForumMessage.id == message_id
     ).first()
 
-    if not user or not message:
+    if not message:
         raise HTTPException(
             status_code=404,
-            detail="Не знайдено."
+            detail="Повідомлення не знайдено."
         )
 
-    if message.user_email != user.email and not user.is_admin:
+    if (
+        message.user_email.casefold() != current_user.email.casefold()
+        and not current_user.is_admin
+    ):
         raise HTTPException(
             status_code=403,
             detail="Можна видаляти лише свої повідомлення."
         )
 
-    to_delete = [message.id]
-    queue = [message.id]
+    try:
+        db.query(ForumMessage).filter(
+            ForumMessage.parent_id == message.id
+        ).update(
+            {ForumMessage.parent_id: message.parent_id},
+            synchronize_session=False
+        )
 
-    while queue:
-        children = db.query(ForumMessage).filter(
-            ForumMessage.parent_id.in_(queue)
-        ).all()
+        db.delete(message)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-        queue = [
-            child.id
-            for child in children
-        ]
-
-        to_delete.extend(queue)
-
-    db.query(ForumMessage).filter(
-        ForumMessage.id.in_(to_delete)
-    ).delete(synchronize_session=False)
-
-    db.commit()
-
-    return {"message": "Видалено."}
+    return {
+        "message": "Повідомлення видалено, відповіді збережено.",
+        "id": message_id
+    }
