@@ -53,11 +53,6 @@ def send_forum_reply_email(
             відповів на ваше повідомлення.
           </p>
 
-          <div style="background:#ecfdf5;padding:18px;
-                      border-radius:12px;color:#064e3b;">
-            {safe_reply}
-          </div>
-
           <p style="margin-top:25px;">
             Перейдіть на сайт, щоб прочитати відповідь
             та продовжити обговорення.
