@@ -527,9 +527,8 @@ function AppContent() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 w-full px-3 pt-0 pb-4 sm:px-6 sm:pt-0 sm:pb-6 lg:p-8 xl:p-10 overflow-x-clip overflow-y-visible flex flex-col justify-between min-h-screen text-left relative">
-        <div>
-          <div className={`sticky top-0 z-30 lg:static flex flex-wrap justify-between items-center gap-3 mb-5 sm:mb-8 -mx-3 px-3 py-3 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0 lg:py-0 border-b lg:border-0 shadow-sm lg:shadow-none backdrop-blur-xl lg:backdrop-blur-none ${dark ? "bg-[#0b0f19]/95 border-slate-800" : "bg-slate-100/95 border-slate-200"}`}>
+      <main className="flex-1 min-w-0 w-full px-3 pt-0 pb-4 sm:px-6 sm:pt-0 sm:pb-6 lg:p-8 xl:p-10 min-h-screen text-left relative">
+          <div className={`sticky top-0 z-30 flex flex-wrap justify-between items-center gap-3 mb-5 sm:mb-8 -mx-3 px-3 py-3 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 xl:-mx-10 xl:px-10 lg:py-4 border-b shadow-sm backdrop-blur-xl ${dark ? "bg-[#0b0f19]/95 border-slate-800" : "bg-slate-100/95 border-slate-200"}`}>
             <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
@@ -566,6 +565,7 @@ function AppContent() {
             )}
           </div>
 
+        <div>
           {activeTab === 'overview' && (
             <OverviewPage />
           )}
