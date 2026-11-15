@@ -33,18 +33,18 @@ export default function OverviewPage() {
 
   return (
     <div className="space-y-8 animate-fadeIn transition-all duration-500">
-      <div className={`p-8 rounded-3xl border shadow-xl relative overflow-hidden transition-all duration-500 ${
+      <div className={`p-4 sm:p-6 lg:p-8 rounded-3xl border shadow-xl relative overflow-hidden transition-all duration-500 ${
         dark
           ? 'bg-[#0f172a] border-slate-800 text-white'
           : 'bg-white border-slate-200 text-slate-900'
       }`}>
-        <div className="flex justify-between items-start mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6">
           <div>
             <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider">
               Smart Market Intelligence
             </span>
 
-            <h1 className="text-3xl font-black mt-1 text-left">
+            <h1 className="text-2xl sm:text-3xl font-black mt-1 text-left break-words">
               {currentText.hello}, {user?.display_name || currentText.guest}!
             </h1>
 
@@ -68,7 +68,7 @@ export default function OverviewPage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mt-6">
           <div className={`p-4 rounded-2xl border ${cardClass}`}>
             <p className="text-[10px] uppercase font-bold text-slate-400 text-left">
               {currentText.carsAnalyzed}
@@ -135,7 +135,7 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         <div className={`md:col-span-2 p-6 rounded-3xl border ${
           dark
             ? 'bg-[#0f172a] border-slate-800 text-white'

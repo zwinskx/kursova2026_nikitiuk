@@ -99,7 +99,7 @@ export default function SavedPage() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
           {orderedSavedCars.map(car => {
             const myBookingStatus = getBookingStatus(car.id);
             const myBooking = getMyBooking(car.id);
@@ -118,7 +118,7 @@ export default function SavedPage() {
             return (
               <div
                 key={car.id}
-                className={`rounded-3xl p-6 border shadow-xl flex flex-col justify-between transition-all ${
+                className={`rounded-3xl p-4 sm:p-6 border shadow-xl flex flex-col justify-between transition-all ${
                   dark
                     ? 'bg-[#0f172a] border-slate-800 text-white'
                     : 'bg-white border-slate-200 text-slate-900'

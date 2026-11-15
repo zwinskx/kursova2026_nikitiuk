@@ -12,7 +12,7 @@ export default function RecentPage() {
 
   return (
     <div className="animate-fadeIn">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold text-left">{currentText.recent} ({currentUserData.recent.length})</h2>
         {currentUserData.recent.length > 0 && (
           <button onClick={handleClearRecent} className="px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer">
@@ -28,7 +28,7 @@ export default function RecentPage() {
           <p className="text-xs font-medium mt-1 text-slate-400">{currentText.emptyHistorySub}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
           {cars.filter(c => currentUserData.recent.includes(c.id)).map(car => {
             const isBooked = currentUserData.booked.includes(car.id);
             const isSaved = currentUserData.saved.includes(car.id);
@@ -49,7 +49,7 @@ export default function RecentPage() {
                   </button>
                 </div>
                 <div className="p-5 space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-wrap justify-between items-center gap-2">
                     <h3 className="font-bold text-lg text-left">{car.title}</h3>
                     <div className="text-right">
                     {car.discount > 0 && <span className="block text-[10px] font-semibold line-through text-slate-400">{formatPrice(car.price)}</span>}

@@ -4,6 +4,8 @@ import ImgLogo from './assets/logo.png';
 
 import {
   LayoutDashboard,
+  Menu,
+  X,
   Compass,
   BarChart2,
   Bookmark,
@@ -155,6 +157,15 @@ function AppContent() {
   const { theme, setTheme } = useTheme();
 
   const darkLogo = useAdaptiveLogo();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, []);
 
   const {
     activeTab,
@@ -301,6 +312,7 @@ function AppContent() {
   ];
 
   const openSettings = () => {
+    setMobileMenuOpen(false);
     if (!user) {
       setIsAuthModalOpen(true);
       setAuthMode('login');
@@ -319,23 +331,43 @@ function AppContent() {
     <div
       className={
         dark
-          ? 'dark bg-[#0b0f19] text-slate-100 min-h-screen flex font-sans'
-          : 'bg-slate-100 text-slate-900 min-h-screen flex font-sans'
+          ? 'dark bg-[#0b0f19] text-slate-100 min-h-screen flex font-sans w-full min-w-0'
+          : 'bg-slate-100 text-slate-900 min-h-screen flex font-sans w-full min-w-0'
       }
     >
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          aria-label={lang === 'ua' ? 'Закрити меню' : 'Close menu'}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] lg:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
       <aside
-        className={`w-64 h-screen sticky top-0 flex flex-col justify-between p-6 border-r transition-colors z-30 shadow-2xl ${
+        id="autoadvisor-mobile-navigation"
+        className={`fixed inset-y-0 left-0 w-[min(86vw,320px)] h-[100dvh] lg:w-64 lg:h-screen lg:sticky lg:top-0 shrink-0 flex flex-col justify-between p-4 sm:p-6 border-r transform transition-transform duration-300 z-50 lg:z-30 shadow-2xl overflow-y-auto ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} ${
           dark
             ? 'bg-[#0d1322] border-slate-800 text-slate-200'
             : 'bg-slate-50 border-slate-200 text-slate-800'
         }`}
       >
         <div>
+          <div className="flex justify-end lg:hidden mb-1">
+            <button
+              type="button"
+              aria-label={lang === 'ua' ? 'Закрити меню' : 'Close menu'}
+              onClick={() => setMobileMenuOpen(false)}
+              className="p-2 rounded-lg hover:bg-slate-500/20"
+            >
+              <X size={22} />
+            </button>
+          </div>
           <button
             type="button"
-            onClick={() => setActiveTab('overview')}
+            onClick={() => { setActiveTab('overview'); setMobileMenuOpen(false); }}
             title="AutoAdvisor"
-            className="w-full flex items-center gap-2 mb-10 bg-transparent border-0 outline-none cursor-pointer text-left"
+            className="w-full flex items-center gap-2 mb-7 lg:mb-10 bg-transparent border-0 outline-none cursor-pointer text-left"
           >
             <img
               src={dark ? (darkLogo || ImgLogo) : ImgLogo}
@@ -369,7 +401,7 @@ function AppContent() {
                 <button
                   type="button"
                   key={item.id}
-                  onClick={() => setActiveTab(item.id)}
+                  onClick={() => { setActiveTab(item.id); setMobileMenuOpen(false); }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-left transition-all ${
                     selected
                       ? item.id === 'admin'
@@ -454,9 +486,7 @@ function AppContent() {
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setIsAccountSwitcherOpen(true)
-                    }
+                    onClick={() => { setIsAccountSwitcherOpen(true); setMobileMenuOpen(false); }}
                     className="text-[10px] text-emerald-400 hover:underline font-semibold flex items-center gap-0.5 cursor-pointer"
                   >
                     <UserCheck size={10} />
@@ -470,6 +500,7 @@ function AppContent() {
                 onClick={() => {
                   setAuthMode('login');
                   setIsAuthModalOpen(true);
+                  setMobileMenuOpen(false);
                 }}
                 className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-lg transition-all"
               >
@@ -496,10 +527,21 @@ function AppContent() {
         </div>
       </aside>
 
-      <main className="flex-1 p-10 overflow-y-auto flex flex-col justify-between min-h-screen text-left relative">
+      <main className="flex-1 min-w-0 w-full px-3 py-4 sm:p-6 lg:p-8 xl:p-10 overflow-x-hidden overflow-y-auto flex flex-col justify-between min-h-screen text-left relative">
         <div>
-          <div className="flex justify-between items-center mb-8">
-            <span
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-5 sm:mb-8">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                aria-label={lang === 'ua' ? 'Відкрити меню' : 'Open menu'}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="autoadvisor-mobile-navigation"
+                onClick={() => setMobileMenuOpen(true)}
+                className={`lg:hidden shrink-0 p-2.5 rounded-xl border ${dark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'}`}
+              >
+                <Menu size={22} />
+              </button>
+              <span
               className={`text-xs uppercase tracking-widest font-bold text-left ${
                 dark
                   ? 'text-slate-300'
@@ -511,6 +553,7 @@ function AppContent() {
                 {activeTab}
               </span>
             </span>
+            </div>
 
             {user && (
               <button
@@ -589,7 +632,7 @@ function AppContent() {
         <AccountSettingsModal />
 
         <footer
-          className={`mt-16 pt-6 border-t text-xs font-medium flex justify-between items-center ${
+          className={`mt-10 sm:mt-16 pt-6 border-t text-xs font-medium flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 ${
             dark
               ? 'border-slate-800 text-slate-400'
               : 'border-slate-200 text-slate-600'
@@ -597,7 +640,7 @@ function AppContent() {
         >
           <p>{currentText.footerRights}</p>
 
-          <div className="flex gap-6">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-4 xl:gap-6 break-words">
             <span>
               📞 +38 (068) 331-78-25
             </span>

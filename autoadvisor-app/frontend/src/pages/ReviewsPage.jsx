@@ -15,10 +15,10 @@ export default function ReviewsPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-6 animate-fadeIn">
-      <div className="flex justify-between items-start mb-10">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-6 sm:mb-10">
         <div className="text-left">
           <span className="text-xs font-extrabold text-emerald-400 uppercase tracking-widest">{currentText.customerReviews}</span>
-          <h2 className="text-3xl font-black mt-1">{currentText.whatTheySay}</h2>
+          <h2 className="text-2xl sm:text-3xl font-black mt-1">{currentText.whatTheySay}</h2>
         </div>
         <div className={`p-4 rounded-3xl border flex items-center gap-4 shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
           <div className="text-3xl font-black text-emerald-400">{averageRating}</div>
@@ -35,7 +35,7 @@ export default function ReviewsPage() {
           onMouseEnter={() => setIsPaused(true)}
           onMouseLeave={() => setIsPaused(false)}
         >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 transition-all duration-700 ease-in-out">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 transition-all duration-700 ease-in-out">
             {reviews.slice(currentReviewIdx, currentReviewIdx + 3).map((rev, idx) => (
               <div key={idx} className={`p-7 rounded-3xl border shadow-xl flex flex-col justify-between transition-transform duration-500 hover:-translate-y-1 ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
                 <div>
@@ -92,7 +92,7 @@ export default function ReviewsPage() {
         )}
       </div>
 
-      <div className={`border rounded-3xl p-8 mb-12 shadow-2xl relative overflow-hidden text-left ${theme === 'dark' ? 'bg-[#121824] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+      <div className={`border rounded-3xl p-4 sm:p-8 mb-12 shadow-2xl relative overflow-hidden text-left ${theme === 'dark' ? 'bg-[#121824] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         <span className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider">{currentText.yourOpinion}</span>
         <h3 className="text-2xl font-black mt-1 mb-2">{currentText.shareExperience}</h3>
 
