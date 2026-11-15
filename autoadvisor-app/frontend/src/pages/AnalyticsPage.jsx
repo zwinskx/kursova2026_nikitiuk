@@ -68,13 +68,13 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className={`p-8 rounded-3xl border shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+      <div className={`p-4 sm:p-6 lg:p-8 rounded-3xl border shadow-xl ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest text-left block">LIVE MARKET DATA</span>
-        <h2 className="text-3xl font-black mt-1 text-left">{currentText.marketAnalyticsTitle}</h2>
+        <h2 className="text-2xl sm:text-3xl font-black mt-1 text-left">{currentText.marketAnalyticsTitle}</h2>
         <p className={`text-xs font-medium mt-1 text-left ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>{currentText.marketAnalyticsSub}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
         <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
           <p className="text-xs uppercase font-bold text-slate-400 text-left">{currentText.medianPrice}</p>
           <p className="text-2xl font-black mt-2 text-left">{formatPrice(calculatedAvgPrice)}</p>
@@ -97,8 +97,8 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div className={`p-8 rounded-3xl border shadow-xl relative ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-        <div className="flex justify-between items-start mb-6">
+      <div className={`p-4 sm:p-6 lg:p-8 rounded-3xl border shadow-xl relative ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+        <div className="flex flex-wrap justify-between items-start gap-3 mb-6">
           <div>
             <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest text-left block flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -108,7 +108,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-8">
           <div className={`p-4 rounded-2xl border flex items-center gap-4 ${theme === 'dark' ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
             {c1?.image_url && (
               <img src={c1.image_url} alt="" className="w-20 h-14 object-cover rounded-xl shadow shrink-0" />
@@ -145,7 +145,7 @@ export default function AnalyticsPage() {
         {c1 && c2 && (
           <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-700/40">
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-center">
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{currentText.annualDepreciation} ({currentText.lowerIsBetter}):</span>
@@ -173,7 +173,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center pt-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-center pt-3">
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{currentText.avgDaysOnMarket}:</span>
@@ -194,7 +194,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center pt-3">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-center pt-3">
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-xs font-bold text-slate-600 dark:text-slate-400">{currentText.valueMoneyIndex}:</span>
