@@ -23,8 +23,8 @@ export default function AuthModal() {
     : (ua ? 'Відновлення пароля' : 'Reset password');
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-      <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border text-left ${dark ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-3 sm:p-4 backdrop-blur-sm animate-fadeIn">
+      <div className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl w-full max-w-md min-w-0 max-h-[calc(100dvh-24px)] overflow-y-auto overscroll-contain shadow-2xl border text-left ${dark ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         <div className="flex justify-between items-center mb-4">
           {/* для режиму forgot заголовок рендерить сама форма */}
           {authMode !== 'forgot' ? <h3 className="text-xl font-bold">{title}</h3> : <span />}

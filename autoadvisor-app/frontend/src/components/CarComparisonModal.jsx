@@ -26,18 +26,18 @@ export default function CarComparisonModal({ isOpen, onClose, car1, car2, theme,
   const show = (row, v) => (v === undefined || v === null || v === '' ? '-' : row.fmt ? row.fmt(v) : v);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-      <div className={`p-8 rounded-3xl w-full max-w-3xl shadow-2xl border text-left max-h-[90vh] overflow-y-auto ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-2 sm:p-4 backdrop-blur-sm animate-fadeIn">
+      <div className={`p-3 sm:p-8 rounded-2xl sm:rounded-3xl w-full max-w-3xl min-w-0 shadow-2xl border text-left max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-bold">{ua ? 'Повне порівняння' : 'Full comparison'}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={20}/></button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6 items-end">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 items-end">
           <div></div>
           {[car1, car2].map((car, i) => (
             <div key={i} className="text-center">
-              {car.image_url && <img src={car.image_url} alt="" className="w-full h-28 object-cover rounded-2xl mb-2" />}
+              {car.image_url && <img src={car.image_url} alt="" className="w-full h-16 sm:h-28 object-cover rounded-2xl mb-2" />}
               <p className="font-bold text-sm">{car.title}</p>
             </div>
           ))}
@@ -45,12 +45,12 @@ export default function CarComparisonModal({ isOpen, onClose, car1, car2, theme,
 
         <div className="space-y-2">
           {rows.map((row, i) => (
-            <div key={i} className={`grid grid-cols-3 gap-4 p-3 rounded-xl border items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-xs font-bold text-slate-400 uppercase">{row.label}</span>
+            <div key={i} className={`grid grid-cols-3 gap-2 sm:gap-4 p-2 sm:p-3 rounded-xl border items-center ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+              <span className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase break-words min-w-0">{row.label}</span>
               {[1, 2].map(side => {
                 const better = isBetter(row, side);
                 return (
-                  <span key={side} className={`text-sm font-bold text-center flex items-center justify-center gap-1 ${better ? 'text-emerald-400' : ''}`}>
+                  <span key={side} className={`text-[11px] sm:text-sm font-bold text-center flex flex-wrap items-center justify-center gap-1 min-w-0 break-words ${better ? 'text-emerald-400' : ''}`}>
                     {show(row, side === 1 ? row.v1 : row.v2)} {better && <CheckCircle2 size={14} />}
                   </span>
                 );

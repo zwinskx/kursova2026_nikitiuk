@@ -10,6 +10,24 @@ import { t } from '../constants/translations';
 
 const AppContext = createContext(null);
 
+// Normalize saved browser state from older app versions, especially on mobile.
+const asObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+const asArray = value => Array.isArray(value) ? value : [];
+const normalizePersonalData = value => {
+  const data = asObject(value);
+  return {
+    ...data,
+    saved: asArray(data.saved),
+    booked: asArray(data.booked),
+    recent: asArray(data.recent),
+    bookingsDetails: asObject(data.bookingsDetails)
+  };
+};
+const safePersist = (key, value) => {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch (error) { console.warn(`Could not save ${key} to browser storage`, error); }
+};
+
 const API = (
   import.meta.env.VITE_API_URL ||
   "http://127.0.0.1:8000"
@@ -50,7 +68,7 @@ export function AppProvider({ children }) {
   const [savedAccounts, setSavedAccounts] = useState(() => {
     try {
       const saved = localStorage.getItem('autoadvisor_accounts');
-      return saved ? JSON.parse(saved) : [];
+      return saved ? asArray(JSON.parse(saved)).filter(acc => acc && typeof acc === 'object') : [];
     } catch {
       return [];
     }
@@ -106,7 +124,7 @@ export function AppProvider({ children }) {
   const [userPersonalData, setUserPersonalData] = useState(() => {
     try {
       const saved = localStorage.getItem('autoadvisor_personal_data');
-      return saved ? JSON.parse(saved) : {};
+      return saved ? asObject(JSON.parse(saved)) : {};
     } catch {
       return {};
     }
@@ -167,38 +185,32 @@ export function AppProvider({ children }) {
   const currentText = t[lang] || t.ua;
 
   useEffect(() => {
-    localStorage.setItem('autoadvisor_lang', lang);
-    localStorage.setItem('autoadvisor_currency', currency);
-    localStorage.setItem('autoadvisor_distance', distanceUnit);
+    try { localStorage.setItem('autoadvisor_lang', lang); } catch {}
+    try { localStorage.setItem('autoadvisor_currency', currency); } catch {}
+    try { localStorage.setItem('autoadvisor_distance', distanceUnit); } catch {}
   }, [lang, currency, distanceUnit]);
 
   useEffect(() => {
     if (!user) {
-      localStorage.removeItem('autoadvisor_user');
+      try { localStorage.removeItem('autoadvisor_user'); } catch {}
       return;
     }
 
-    localStorage.setItem('autoadvisor_user', JSON.stringify(user));
+    safePersist('autoadvisor_user', user);
 
     setSavedAccounts(prev => {
       const updated = prev.some(acc => acc.email === user.email)
         ? prev.map(acc => acc.email === user.email ? user : acc)
         : [...prev, user];
 
-      localStorage.setItem(
-        'autoadvisor_accounts',
-        JSON.stringify(updated)
-      );
+      safePersist('autoadvisor_accounts', updated);
 
       return updated;
     });
   }, [user]);
 
   useEffect(() => {
-    localStorage.setItem(
-      'autoadvisor_personal_data',
-      JSON.stringify(userPersonalData)
-    );
+    safePersist('autoadvisor_personal_data', userPersonalData);
   }, [userPersonalData]);
 
   useEffect(() => {
@@ -230,9 +242,9 @@ export function AppProvider({ children }) {
     });
   }, [user]);
 
-  const storedUserData = user
-    ? userPersonalData[user.email] || emptyPersonalData()
-    : emptyPersonalData();
+  const storedUserData = normalizePersonalData(
+    user ? asObject(userPersonalData)[user.email] : null
+  );
 
   const pendingUserBookings = myBookings.filter(
     booking => booking.status === 'pending'
@@ -257,11 +269,11 @@ export function AppProvider({ children }) {
     if (!user) return;
 
     setUserPersonalData(prev => {
-      const current = prev[user.email] || emptyPersonalData();
+      const current = normalizePersonalData(asObject(prev)[user.email]);
 
       return {
         ...prev,
-        [user.email]: updater(current)
+        [user.email]: normalizePersonalData(updater(current))
       };
     });
   };

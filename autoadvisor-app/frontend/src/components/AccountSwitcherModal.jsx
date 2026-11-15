@@ -13,8 +13,8 @@ export default function AccountSwitcherModal() {
   if (!isAccountSwitcherOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-      <div className={`p-8 rounded-3xl w-full max-w-md shadow-2xl border text-left ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-2 sm:p-4 backdrop-blur-sm animate-fadeIn">
+      <div className={`p-4 sm:p-8 rounded-2xl sm:rounded-3xl w-full max-w-md min-w-0 max-h-[calc(100dvh-16px)] overflow-y-auto shadow-2xl border text-left ${theme === 'dark' ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xl font-bold">{currentText.switchAccountModalTitle}</h3>
           <button onClick={() => setIsAccountSwitcherOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={20}/></button>
@@ -22,14 +22,14 @@ export default function AccountSwitcherModal() {
         <p className="text-xs text-slate-400 mb-4">{currentText.switchAccountSub}</p>
 
         <div className="space-y-2 mb-6 max-h-60 overflow-y-auto">
-          {savedAccounts.map((acc, idx) => (
+          {(Array.isArray(savedAccounts) ? savedAccounts : []).filter(Boolean).map((acc, idx) => (
             <div key={idx} className={`p-3 rounded-2xl border flex justify-between items-center ${acc.email === user?.email ? 'border-emerald-500 bg-emerald-500/10' : theme === 'dark' ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-              <div className="flex items-center gap-3 overflow-hidden">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0 overflow-hidden">
                 {acc.avatar_url ? (
                   <img src={acc.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover shrink-0" />
                 ) : (
                   <div className="w-10 h-10 bg-emerald-500 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0">
-                    {acc.display_name[0]}
+                    {(acc.display_name || acc.email || 'U')[0]}
                   </div>
                 )}
                 <div className="overflow-hidden">
@@ -38,7 +38,7 @@ export default function AccountSwitcherModal() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                 {acc.email !== user?.email ? (
                   <button 
                     onClick={() => { 

@@ -11,8 +11,7 @@ export default function AccountSettingsModal() {
     handleAvatarUpload, settingsLang, setSettingsLang, settingsCurrency, setSettingsCurrency,
     settingsDistance, setSettingsDistance, currentPass, setCurrentPass, newPass, setNewPass,
     confirmNewPass, setConfirmNewPass,
-    // нове: підписка на email-розсилку (треба додати в AppContext, див. нижче)
-    settingsEmailAlerts, setSettingsEmailAlerts
+    emailAlerts, setEmailAlerts
   } = useApp();
 
   const [tab, setTab] = useState('profile');
@@ -35,10 +34,10 @@ export default function AccountSettingsModal() {
   ];
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm animate-fadeIn">
-      <div className={`rounded-3xl w-full max-w-3xl shadow-2xl border text-left max-h-[90vh] overflow-hidden flex flex-col ${dark ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-2 sm:p-4 backdrop-blur-sm animate-fadeIn">
+      <div className={`rounded-2xl sm:rounded-3xl w-full max-w-3xl min-w-0 shadow-2xl border text-left max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] overflow-hidden flex flex-col ${dark ? 'bg-[#0f172a] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
         {/* Шапка */}
-        <div className={`flex justify-between items-center px-8 pt-6 pb-4 border-b ${dark ? 'border-slate-800' : 'border-slate-200'}`}>
+        <div className={`flex justify-between items-center gap-3 px-4 sm:px-8 pt-4 sm:pt-6 pb-4 border-b ${dark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div>
             <h3 className="text-xl font-bold">{currentText.settingsTitle}</h3>
             <p className="text-xs text-slate-400 mt-1">{currentText.settingsSub}</p>
@@ -67,14 +66,14 @@ export default function AccountSettingsModal() {
 
           {/* Вміст вкладки */}
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto p-8 space-y-6">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-8 space-y-6">
 
               {/* ПРОФІЛЬ */}
               {tab === 'profile' && (
                 <>
                   <div>
                     <h4 className={sectionTitle}>{currentText.profileInfo}</h4>
-                    <div className="flex items-center gap-5 mb-5">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-5 mb-5">
                       {settingsAvatar ? (
                         <img src={settingsAvatar} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 border-emerald-500/60 shadow-lg" />
                       ) : (
@@ -163,11 +162,11 @@ export default function AccountSettingsModal() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={!!settingsEmailAlerts}
-                      onClick={() => setSettingsEmailAlerts(!settingsEmailAlerts)}
-                      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 cursor-pointer ${settingsEmailAlerts ? 'bg-emerald-500' : dark ? 'bg-slate-700' : 'bg-slate-300'}`}
+                      aria-checked={!!emailAlerts}
+                      onClick={() => setEmailAlerts(!emailAlerts)}
+                      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 cursor-pointer ${emailAlerts ? 'bg-emerald-500' : dark ? 'bg-slate-700' : 'bg-slate-300'}`}
                     >
-                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${settingsEmailAlerts ? 'translate-x-5' : ''}`} />
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailAlerts ? 'translate-x-5' : ''}`} />
                     </button>
                   </div>
                 </div>
@@ -187,7 +186,7 @@ export default function AccountSettingsModal() {
             </div>
 
             {/* Кнопки (спільні для всіх вкладок) */}
-            <div className={`flex gap-3 px-8 py-4 border-t ${dark ? 'border-slate-800' : 'border-slate-200'}`}>
+            <div className={`flex gap-2 sm:gap-3 px-4 sm:px-8 py-3 sm:py-4 border-t ${dark ? 'border-slate-800' : 'border-slate-200'}`}>
               <button type="submit" className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer">
                 {currentText.savePrefs}
               </button>

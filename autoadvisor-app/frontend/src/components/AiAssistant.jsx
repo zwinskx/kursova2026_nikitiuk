@@ -4,6 +4,8 @@ import { X, Send, Bot, Sparkles } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useApp } from '../context/AppContext';
 
+const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+
 export default function AiAssistant() {
   const { theme } = useTheme();
 
@@ -56,7 +58,7 @@ export default function AiAssistant() {
 
     if (!car) {
       const response = await fetch(
-        'http://127.0.0.1:8000/api/recommendations?budget_max=100000000&min_liquidity=0'
+        `${API}/api/recommendations?budget_max=100000000&min_liquidity=0`
       );
 
       if (response.ok) {
@@ -145,7 +147,7 @@ export default function AiAssistant() {
   );
 
   return (
-    <div className="fixed bottom-20 right-6 z-40">
+    <div className="fixed bottom-3 right-3 sm:bottom-20 sm:right-6 z-40">
       {!isChatOpen ? (
         <div className="relative">
           <span className="ai-pulse absolute inset-0 rounded-full bg-emerald-400" />
@@ -160,7 +162,7 @@ export default function AiAssistant() {
           </button>
         </div>
       ) : (
-        <div className={`ai-window w-80 md:w-96 h-[500px] rounded-3xl border flex flex-col overflow-hidden shadow-[0_20px_60px_-10px_rgba(0,0,0,0.45)] ${
+        <div className={`ai-window w-[calc(100vw-24px)] sm:w-80 md:w-96 h-[min(500px,calc(100dvh-84px))] rounded-2xl sm:rounded-3xl border flex flex-col overflow-hidden shadow-[0_20px_60px_-10px_rgba(0,0,0,0.45)] ${
           dark
             ? 'bg-[#0f172a] border-slate-700/60 text-white'
             : 'bg-white border-slate-200 text-slate-900'

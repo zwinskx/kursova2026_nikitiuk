@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useApp } from '../context/AppContext';
 
-const API = 'http://127.0.0.1:8000';
+const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 
 export default function ForgotPasswordForm() {
   const { theme } = useTheme();

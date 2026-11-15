@@ -117,12 +117,12 @@ export default function BookingModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
     >
-      <div className={`w-full max-w-md rounded-3xl border shadow-2xl p-6 ${
+      <div className={`w-full max-w-md min-w-0 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain rounded-2xl sm:rounded-3xl border shadow-2xl p-4 sm:p-6 ${
         dark
           ? 'bg-[#0f172a] border-slate-700 text-white'
           : 'bg-white border-slate-200 text-slate-900'
