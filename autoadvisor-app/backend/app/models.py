@@ -1,13 +1,10 @@
 from datetime import datetime
 from sqlalchemy import (
     Column,
-    DateTime,
-    Integer,
-    String,
-    Float,
-    Boolean,
-    ForeignKey,
-    Text
+    UniqueConstraint,
+    CheckConstraint, DateTime, Integer, String, Float, Boolean,
+    ForeignKey, Text, UniqueConstraint,
+    CheckConstraint
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
@@ -46,12 +43,9 @@ class Car(Base):
     description = Column(String(1000), default="Опис відсутній")
     is_archived = Column(Boolean, default=False, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
-
     images = relationship(
-        "CarImage",
-        cascade="all, delete-orphan",
-        back_populates="car",
-        order_by="CarImage.position"
+        "CarImage", cascade="all, delete-orphan",
+        back_populates="car", order_by="CarImage.position"
     )
 
 
@@ -59,19 +53,10 @@ class CarImage(Base):
     __tablename__ = "car_images"
 
     id = Column(Integer, primary_key=True)
-    car_id = Column(
-        Integer,
-        ForeignKey("cars.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True
-    )
+    car_id = Column(Integer, ForeignKey("cars.id", ondelete="CASCADE"), nullable=False, index=True)
     image_url = Column(LONGTEXT, nullable=False)
     position = Column(Integer, default=0, nullable=False)
-
-    car = relationship(
-        "Car",
-        back_populates="images"
-    )
+    car = relationship("Car", back_populates="images")
 
 
 class Review(Base):
@@ -88,12 +73,7 @@ class Booking(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String(255), nullable=False, index=True)
-    car_id = Column(
-        Integer,
-        ForeignKey("cars.id"),
-        nullable=False,
-        index=True
-    )
+    car_id = Column(Integer, ForeignKey("cars.id"), nullable=False, index=True)
     phone = Column(String(50), nullable=False)
     comment = Column(String(500), nullable=True)
     status = Column(String(50), default="pending", nullable=False)
@@ -111,3 +91,38 @@ class ForumMessage(Base):
     author = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+
+class ForumReaction(Base):
+    __tablename__ = "forum_reactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    message_id = Column(
+        Integer,
+        ForeignKey("forum_messages.id"),
+        nullable=False,
+        index=True
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+
+    value = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id",
+            "user_id",
+            name="uq_forum_reaction_message_user"
+        ),
+        CheckConstraint(
+            "value IN (-1, 1)",
+            name="ck_forum_reaction_value"
+        ),
+    )
