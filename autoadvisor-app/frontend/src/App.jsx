@@ -527,9 +527,9 @@ function AppContent() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 w-full px-3 py-4 sm:p-6 lg:p-8 xl:p-10 overflow-x-hidden overflow-y-auto flex flex-col justify-between min-h-screen text-left relative">
+      <main className="flex-1 min-w-0 w-full px-3 pt-0 pb-4 sm:px-6 sm:pt-0 sm:pb-6 lg:p-8 xl:p-10 overflow-x-clip overflow-y-visible flex flex-col justify-between min-h-screen text-left relative">
         <div>
-          <div className="flex flex-wrap justify-between items-center gap-3 mb-5 sm:mb-8">
+          <div className={`sticky top-0 z-30 lg:static flex flex-wrap justify-between items-center gap-3 mb-5 sm:mb-8 -mx-3 px-3 py-3 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0 lg:py-0 border-b lg:border-0 shadow-sm lg:shadow-none backdrop-blur-xl lg:backdrop-blur-none ${dark ? "bg-[#0b0f19]/95 border-slate-800" : "bg-slate-100/95 border-slate-200"}`}>
             <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
