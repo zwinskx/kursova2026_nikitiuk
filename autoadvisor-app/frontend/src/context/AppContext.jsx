@@ -10,7 +10,6 @@ import { t } from '../constants/translations';
 
 const AppContext = createContext(null);
 
-// Normalize saved browser state from older app versions, especially on mobile.
 const asObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 const asArray = value => Array.isArray(value) ? value : [];
 const normalizePersonalData = value => {
@@ -68,7 +67,7 @@ export function AppProvider({ children }) {
   const [savedAccounts, setSavedAccounts] = useState(() => {
     try {
       const saved = localStorage.getItem('autoadvisor_accounts');
-      return saved ? asArray(JSON.parse(saved)).filter(acc => acc && typeof acc === 'object') : [];
+      return saved ? asArray(JSON.parse(saved)).filter(acc => acc && typeof acc === "object") : [];
     } catch {
       return [];
     }
@@ -442,7 +441,7 @@ export function AppProvider({ children }) {
     const ids = new Set(cars.map(car => car.id));
 
     setUserPersonalData(prev => {
-      const data = prev[user.email] || emptyPersonalData();
+      const data = normalizePersonalData(asObject(prev)[user.email]);
 
       const saved = data.saved.filter(id => ids.has(id));
       const recent = data.recent.filter(id => ids.has(id));
@@ -1228,6 +1227,13 @@ export function AppProvider({ children }) {
       return false;
     }
 
+    if (!user.access_token) {
+      alert(lang === 'ua'
+        ? 'Увійдіть в акаунт повторно, щоб публікувати повідомлення.'
+        : 'Sign in again to post forum messages.');
+      return false;
+    }
+
     const message = String(text || '').trim();
 
     if (!message) return false;
@@ -1235,7 +1241,7 @@ export function AppProvider({ children }) {
     try {
       const response = await fetch(`${API}/api/forum`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.access_token}` },
         body: JSON.stringify({
           email: user.email,
           author: user.display_name,
@@ -1356,10 +1362,17 @@ export function AppProvider({ children }) {
 
     if (!forumInput.trim()) return;
 
+    if (!user.access_token) {
+      alert(lang === 'ua'
+        ? 'Увійдіть в акаунт повторно, щоб публікувати повідомлення.'
+        : 'Sign in again to post forum messages.');
+      return;
+    }
+
     try {
       const response = await fetch(`${API}/api/forum`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.access_token}` },
         body: JSON.stringify({
           email: user.email,
           author: user.display_name,

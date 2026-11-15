@@ -1,4 +1,3 @@
-
 import os
 import re
 import time
@@ -7,50 +6,41 @@ import base64
 import hashlib
 import hmac
 import json
-
+from collections import defaultdict
 from datetime import datetime
 from typing import Optional, List
-
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, BackgroundTasks
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 from pydantic import BaseModel, EmailStr
-
 from .database import engine, Base, get_db
-from .models import User, Car, CarImage, Review, Booking, ForumMessage
+from .models import User, Car, CarImage, Review, Booking, ForumMessage, ForumReaction
 from .decision_tree import evaluate_car_liquidity
 from .mailer import send_email_alert, send_reset_code_email
+from .forum_reply_email import send_forum_reply_email
 from .ai_chat import router as ai_router
-
 load_dotenv()
-
 _AUTH_SECRET = os.getenv("AUTOADVISOR_AUTH_SECRET") or secrets.token_urlsafe(48)
 _TOKEN_MAX_AGE = 7 * 24 * 60 * 60
-
-
 def _issue_access_token(user: User) -> str:
     payload = {
         "uid": user.id,
         "iat": int(time.time())
     }
-
     raw = base64.urlsafe_b64encode(
         json.dumps(
             payload,
             separators=(",", ":")
         ).encode("utf-8")
     ).rstrip(b"=").decode("ascii")
-
     signature = hmac.new(
         _AUTH_SECRET.encode("utf-8"),
         raw.encode("ascii"),
         hashlib.sha256
     ).hexdigest()
-
     return f"{raw}.{signature}"
-
-
 def _forum_current_user(
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db)
@@ -60,55 +50,39 @@ def _forum_current_user(
             status_code=401,
             detail="Увійдіть повторно, щоб видаляти повідомлення."
         )
-
     token = authorization[7:].strip()
-
     try:
         encoded, provided_signature = token.split(".", 1)
-
         expected_signature = hmac.new(
             _AUTH_SECRET.encode("utf-8"),
             encoded.encode("ascii"),
             hashlib.sha256
         ).hexdigest()
-
         if not hmac.compare_digest(expected_signature, provided_signature):
             raise ValueError("Invalid signature")
-
         padded = encoded + "=" * (-len(encoded) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded))
-
         age = time.time() - int(payload["iat"])
-
         if age < 0 or age > _TOKEN_MAX_AGE:
             raise ValueError("Expired token")
-
         user_id = int(payload["uid"])
     except (ValueError, TypeError, KeyError, UnicodeDecodeError):
         raise HTTPException(
             status_code=401,
             detail="Сесія недійсна. Увійдіть повторно."
         )
-
     user = db.query(User).filter(User.id == user_id).first()
-
     if user is None:
         raise HTTPException(
             status_code=401,
             detail="Користувача не знайдено."
         )
-
     return user
-
-
 Base.metadata.create_all(bind=engine)
-
 app = FastAPI(
     title="AutoAdvisor Production API",
     version="6.1.0"
 )
-
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -122,11 +96,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
-
-
 app.include_router(ai_router)
-
-
 def user_payload(user, message: str):
     return {
         "message": message,
@@ -151,35 +121,26 @@ def user_payload(user, message: str):
             else 85
         )
     }
-
-
 RESET_CODE_TTL = 10 * 60
 MAX_RESET_ATTEMPTS = 5
 reset_codes_db = {}
-
-
 class VerifyCodeRequest(BaseModel):
     email: EmailStr
     code: str
-
-
 def check_reset_code(email: str, code: str):
     entry = reset_codes_db.get(email)
-
     if not entry or time.time() > entry["expires"]:
         reset_codes_db.pop(email, None)
         raise HTTPException(
             status_code=400,
             detail="Код прострочений. Запросіть новий."
         )
-
     if entry["attempts"] >= MAX_RESET_ATTEMPTS:
         reset_codes_db.pop(email, None)
         raise HTTPException(
             status_code=429,
             detail="Забагато спроб. Запросіть новий код."
         )
-
     if not secrets.compare_digest(
         entry["code"], code.strip()
     ):
@@ -188,27 +149,20 @@ def check_reset_code(email: str, code: str):
             status_code=400,
             detail="Невірний код підтвердження."
         )
-
-
 @app.post("/api/auth/verify-code")
 def verify_code(data: VerifyCodeRequest):
     check_reset_code(data.email, data.code)
     return {"message": "Код підтверджено."}
-
-
 @app.on_event("startup")
 def startup_db():
     db = next(get_db())
-
     try:
         admin_email = os.getenv("ADMIN_EMAIL")
         admin_password = os.getenv("ADMIN_PASSWORD")
-
         if admin_email and admin_password:
             admin_exists = db.query(User).filter(
                 User.email == admin_email
             ).first()
-
             if not admin_exists:
                 db.add(User(
                     email=admin_email,
@@ -216,7 +170,6 @@ def startup_db():
                     display_name="Sasha Admin",
                     is_admin=True
                 ))
-
         if db.query(Car).count() == 0:
             db.add_all([
                 Car(
@@ -256,7 +209,6 @@ def startup_db():
                     description="Спортивне купе для поціновувачів потужності й керованості."
                 )
             ])
-
         if db.query(Review).count() == 0:
             db.add_all([
                 Review(
@@ -275,36 +227,25 @@ def startup_db():
                     rating=4
                 )
             ])
-
         db.commit()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
-
-
 class UserRegister(BaseModel):
     email: EmailStr
     password: str
     display_name: str
-
-
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
-
-
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
-
-
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     code: str
     new_password: str
-
-
 class PreferencesUpdate(BaseModel):
     display_name: str
     email_alerts: bool
@@ -313,8 +254,6 @@ class PreferencesUpdate(BaseModel):
     min_liquidity: int
     current_password: Optional[str] = None
     new_password: Optional[str] = None
-
-
 class CarCreate(BaseModel):
     brand: str
     model: str
@@ -329,8 +268,6 @@ class CarCreate(BaseModel):
     image_url: str
     images: Optional[List[str]] = None
     description: Optional[str] = "Опис відсутній"
-
-
 class CarUpdateModel(BaseModel):
     title: Optional[str] = None
     brand: Optional[str] = None
@@ -346,37 +283,25 @@ class CarUpdateModel(BaseModel):
     image_url: Optional[str] = None
     images: Optional[List[str]] = None
     description: Optional[str] = None
-
-
 class ReviewCreate(BaseModel):
     author: str
     comment: str
     rating: int = 5
-
-
 class BookingCreate(BaseModel):
     user_email: EmailStr
     car_id: int
     phone: str
     comment: Optional[str] = ""
-
-
 class ArchiveToggle(BaseModel):
     is_archived: bool
-
-
 class BookingStatusUpdate(BaseModel):
     status: str
-
-
 class ForumCreate(BaseModel):
     email: str
     message: str
     parent_id: Optional[int] = None
     author: Optional[str] = None
     avatar_url: Optional[str] = None
-
-
 PHONE_LENGTHS = {
     "380": 9,
     "48": 9,
@@ -387,17 +312,13 @@ PHONE_LENGTHS = {
     "33": 9,
     "39": 10
 }
-
-
 def validate_booking_phone(phone: str) -> str:
     phone = phone.strip()
-
     if not re.fullmatch(r"\+[1-9]\d{7,14}", phone):
         raise HTTPException(
             status_code=422,
             detail="Неправильний формат номера телефону."
         )
-
     for prefix, length in sorted(
         PHONE_LENGTHS.items(),
         key=lambda item: len(item[0]),
@@ -405,27 +326,21 @@ def validate_booking_phone(phone: str) -> str:
     ):
         if phone.startswith("+" + prefix):
             national = phone[len(prefix) + 1:]
-
             if len(national) != length:
                 raise HTTPException(
                     status_code=422,
                     detail="Неправильна довжина номера телефону."
                 )
-
             if prefix == "380" and national.startswith("0"):
                 raise HTTPException(
                     status_code=422,
                     detail="Перевірте український номер телефону."
                 )
-
             return phone
-
     raise HTTPException(
         status_code=422,
         detail="Країна номера телефону не підтримується."
     )
-
-
 @app.post("/api/register")
 def register_user(
     data: UserRegister,
@@ -436,31 +351,24 @@ def register_user(
             status_code=400,
             detail="Пароль має містити мінімум 8 символів."
         )
-
     existing = db.query(User).filter(
         User.email == data.email
     ).first()
-
     if existing:
         raise HTTPException(
             status_code=400,
             detail="Користувач із таким email вже існує."
         )
-
     user = User(
         email=data.email,
         password=data.password,
         display_name=data.display_name.strip(),
         is_admin=False
     )
-
     db.add(user)
     db.commit()
     db.refresh(user)
-
     return user_payload(user, "Успішна реєстрація!")
-
-
 @app.post("/api/login")
 def login_user(
     data: UserLogin,
@@ -470,16 +378,12 @@ def login_user(
         User.email == data.email,
         User.password == data.password
     ).first()
-
     if not user:
         raise HTTPException(
             status_code=401,
             detail="Невірний email або пароль."
         )
-
     return user_payload(user, "Вхід успішний!")
-
-
 @app.post("/api/auth/forgot-password")
 def forgot_password(
     data: ForgotPasswordRequest,
@@ -488,16 +392,13 @@ def forgot_password(
     user = db.query(User).filter(
         User.email == data.email
     ).first()
-
     if user:
         code = f"{secrets.randbelow(900000) + 100000}"
-
         reset_codes_db[data.email] = {
             "code": code,
             "expires": time.time() + RESET_CODE_TTL,
             "attempts": 0
         }
-
         try:
             send_reset_code_email(
                 to_email=data.email,
@@ -506,42 +407,32 @@ def forgot_password(
             )
         except Exception as error:
             print("Email error:", type(error).__name__)
-
     return {
         "message": "Якщо адреса зареєстрована, код відновлення надіслано."
     }
-
-
 @app.post("/api/auth/reset-password")
 def reset_password(
     data: ResetPasswordRequest,
     db: Session = Depends(get_db)
 ):
     check_reset_code(data.email, data.code)
-
     if len(data.new_password) < 8:
         raise HTTPException(
             status_code=400,
             detail="Пароль має містити мінімум 8 символів."
         )
-
     user = db.query(User).filter(
         User.email == data.email
     ).first()
-
     if not user:
         raise HTTPException(
             status_code=404,
             detail="Користувача не знайдено."
         )
-
     user.password = data.new_password
     db.commit()
     reset_codes_db.pop(data.email, None)
-
     return {"message": "Пароль успішно змінено!"}
-
-
 @app.put("/api/user/{user_id}/preferences")
 def update_preferences(
     user_id: int,
@@ -551,55 +442,44 @@ def update_preferences(
     user = db.query(User).filter(
         User.id == user_id
     ).first()
-
     if not user:
         raise HTTPException(
             status_code=404,
             detail="Користувача не знайдено."
         )
-
     if data.new_password:
         if not data.current_password:
             raise HTTPException(
                 status_code=400,
                 detail="Вкажіть поточний пароль."
             )
-
         if user.password != data.current_password:
             raise HTTPException(
                 status_code=400,
                 detail="Поточний пароль вказано невірно."
             )
-
         if len(data.new_password) < 8:
             raise HTTPException(
                 status_code=400,
                 detail="Новий пароль має містити мінімум 8 символів."
             )
-
         user.password = data.new_password
-
     if not data.display_name.strip():
         raise HTTPException(
             status_code=400,
             detail="Ім'я не може бути порожнім."
         )
-
     user.display_name = data.display_name.strip()
     user.email_alerts = data.email_alerts
     user.delivery_frequency = data.delivery_frequency
     user.min_liquidity = data.min_liquidity
     user.avatar_url = data.avatar_url
-
     db.commit()
     db.refresh(user)
-
     return {
         "message": "Налаштування успішно збережено!",
         "user": user_payload(user, "")
     }
-
-
 def booking_payload(booking):
     return {
         "id": booking.id,
@@ -620,8 +500,6 @@ def booking_payload(booking):
         ),
         "purchase_price": booking.purchase_price
     }
-
-
 @app.get("/api/recommendations")
 def get_recommendations(
     budget_max: float = 150000,
@@ -636,52 +514,40 @@ def get_recommendations(
         .options(joinedload(Car.images))
         .filter(Car.is_deleted == False)
     )
-
     if budget_max:
         query = query.filter(Car.price <= budget_max)
-
     if brand != "All":
         query = query.filter(Car.brand == brand)
-
     if body_type != "Any":
         query = query.filter(Car.body_type == body_type)
-
     if transmission != "Any":
         query = query.filter(Car.transmission == transmission)
-
     cars = query.all()
-
     pending_ids = {
         car_id
         for (car_id,) in db.query(Booking.car_id).filter(
             Booking.status == "pending"
         ).all()
     }
-
     result = []
-
     for car in cars:
         metrics = evaluate_car_liquidity(
             car.mileage,
             car.year,
             car.brand
         )
-
         score = (
             car.custom_liquidity
             if car.custom_liquidity is not None
             else metrics["liquidity_score"]
         )
-
         if score < min_liquidity:
             continue
-
         images = [
             item.image_url
             for item in car.images
             if item.image_url
         ] or [car.image_url]
-
         result.append({
             "id": car.id,
             "title": f"{car.brand} {car.model}",
@@ -707,17 +573,13 @@ def get_recommendations(
                 "pending" if car.id in pending_ids else None
             )
         })
-
     result.sort(
         key=lambda car: (
             car["is_archived"],
             car["id"]
         )
     )
-
     return result
-
-
 @app.post("/api/admin/cars")
 def add_car(
     car_data: CarCreate,
@@ -728,17 +590,14 @@ def add_car(
         if car_data.images
         else [car_data.image_url]
     )
-
     images = list(dict.fromkeys(
         url for url in images if url
     ))[:8]
-
     if not images:
         raise HTTPException(
             status_code=400,
             detail="Додайте хоча б одну фотографію."
         )
-
     car = Car(
         brand=car_data.brand,
         model=car_data.model,
@@ -753,36 +612,29 @@ def add_car(
         image_url=images[0],
         description=car_data.description
     )
-
     db.add(car)
     db.flush()
-
     for position, url in enumerate(images):
         db.add(CarImage(
             car_id=car.id,
             image_url=url,
             position=position
         ))
-
     db.commit()
     db.refresh(car)
-
     metrics = evaluate_car_liquidity(
         car.mileage,
         car.year,
         car.brand
     )
-
     score = (
         car.custom_liquidity
         if car.custom_liquidity is not None
         else metrics["liquidity_score"]
     )
-
     subscribers = db.query(User).filter(
         User.email_alerts == True
     ).all()
-
     for user in subscribers:
         if score >= (user.min_liquidity or 0):
             try:
@@ -793,13 +645,10 @@ def add_car(
                 )
             except Exception:
                 pass
-
     return {
         "message": "Авто успішно додано в MySQL!",
         "car_id": car.id
     }
-
-
 @app.put("/api/admin/cars/{car_id}")
 def update_car(
     car_id: int,
@@ -809,13 +658,11 @@ def update_car(
     car = db.query(Car).filter(
         Car.id == car_id
     ).first()
-
     if not car:
         raise HTTPException(
             status_code=404,
             detail="Автомобіль не знайдено."
         )
-
     fields = [
         "brand",
         "model",
@@ -829,46 +676,34 @@ def update_car(
         "badge",
         "description"
     ]
-
     for field in fields:
         value = getattr(car_data, field)
-
         if value is not None:
             setattr(car, field, value)
-
     if car_data.images is not None:
         images = list(dict.fromkeys(
             url for url in car_data.images if url
         ))[:8]
-
         if not images:
             raise HTTPException(
                 status_code=400,
                 detail="Потрібна хоча б одна фотографія."
             )
-
         db.query(CarImage).filter(
             CarImage.car_id == car_id
         ).delete(synchronize_session=False)
-
         for position, url in enumerate(images):
             db.add(CarImage(
                 car_id=car.id,
                 image_url=url,
                 position=position
             ))
-
         car.image_url = images[0]
-
     elif car_data.image_url is not None:
         car.image_url = car_data.image_url
-
     db.commit()
     db.refresh(car)
-
     return {"message": "Автомобіль успішно оновлено!"}
-
-
 @app.delete("/api/admin/cars/{car_id}")
 def delete_car(
     car_id: int,
@@ -877,35 +712,27 @@ def delete_car(
     car = db.query(Car).filter(
         Car.id == car_id
     ).first()
-
     if not car:
         raise HTTPException(
             status_code=404,
             detail="Автомобіль не знайдено."
         )
-
     pending = db.query(Booking.id).filter(
         Booking.car_id == car_id,
         Booking.status == "pending"
     ).first()
-
     if pending:
         raise HTTPException(
             status_code=409,
             detail="Спочатку підтвердіть або відхиліть активне бронювання."
         )
-
     car.is_deleted = True
     car.is_archived = True
-
     db.commit()
-
     return {
         "message": "Автомобіль приховано. Історію покупок збережено.",
         "car_id": car.id
     }
-
-
 @app.get("/api/bookings")
 def get_bookings(
     db: Session = Depends(get_db)
@@ -913,13 +740,10 @@ def get_bookings(
     bookings = db.query(Booking).order_by(
         Booking.id.desc()
     ).all()
-
     return [
         booking_payload(booking)
         for booking in bookings
     ]
-
-
 @app.get("/api/users/{email}/bookings")
 def user_bookings(
     email: str,
@@ -932,7 +756,6 @@ def user_bookings(
         .order_by(Booking.id.desc())
         .all()
     )
-
     return [
         {
             **booking_payload(booking),
@@ -942,15 +765,12 @@ def user_bookings(
         }
         for booking, car in rows
     ]
-
-
 @app.post("/api/bookings", status_code=201)
 def create_booking(
     data: BookingCreate,
     db: Session = Depends(get_db)
 ):
     validated_phone = validate_booking_phone(data.phone)
-
     try:
         car = (
             db.query(Car)
@@ -958,19 +778,16 @@ def create_booking(
             .with_for_update()
             .first()
         )
-
         if not car:
             raise HTTPException(
                 status_code=404,
                 detail="Автомобіль не знайдено."
             )
-
         if car.is_archived:
             raise HTTPException(
                 status_code=409,
                 detail="Автомобіль знаходиться в архіві."
             )
-
         existing = (
             db.query(Booking.id)
             .filter(
@@ -979,23 +796,19 @@ def create_booking(
             )
             .first()
         )
-
         if existing:
             raise HTTPException(
                 status_code=409,
                 detail="Цей автомобіль уже заброньовано."
             )
-
         user = db.query(User).filter(
             User.email == data.user_email
         ).first()
-
         if not user:
             raise HTTPException(
                 status_code=404,
                 detail="Користувача не знайдено."
             )
-
         booking = Booking(
             user_email=user.email,
             car_id=car.id,
@@ -1006,17 +819,13 @@ def create_booking(
             decided_at=None,
             purchase_price=None
         )
-
         db.add(booking)
         db.commit()
         db.refresh(booking)
-
         return booking_payload(booking)
     except Exception:
         db.rollback()
         raise
-
-
 @app.put("/api/admin/bookings/{booking_id}")
 def update_booking_status(
     booking_id: int,
@@ -1028,51 +837,43 @@ def update_booking_status(
             status_code=400,
             detail="Невірний статус бронювання."
         )
-
     try:
         target = db.query(Booking).filter(
             Booking.id == booking_id
         ).first()
-
         if not target:
             raise HTTPException(
                 status_code=404,
                 detail="Бронювання не знайдено."
             )
-
         car = (
             db.query(Car)
             .filter(Car.id == target.car_id)
             .with_for_update()
             .first()
         )
-
         if not car:
             raise HTTPException(
                 status_code=404,
                 detail="Автомобіль не знайдено."
             )
-
         booking = (
             db.query(Booking)
             .filter(Booking.id == booking_id)
             .with_for_update()
             .first()
         )
-
         if booking.status != "pending":
             raise HTTPException(
                 status_code=409,
                 detail="Рішення за заявкою вже прийнято."
             )
-
         if status_data.status == "approved":
             if car.is_archived:
                 raise HTTPException(
                     status_code=409,
                     detail="Автомобіль уже знаходиться в архіві."
                 )
-
             booking.status = "approved"
             booking.decided_at = datetime.utcnow()
             booking.purchase_price = float(car.price)
@@ -1081,16 +882,12 @@ def update_booking_status(
             booking.status = "rejected"
             booking.decided_at = datetime.utcnow()
             booking.purchase_price = None
-
         db.commit()
         db.refresh(booking)
-
         return booking_payload(booking)
     except Exception:
         db.rollback()
         raise
-
-
 @app.put("/api/admin/cars/{car_id}/archive")
 def set_car_archive(
     car_id: int,
@@ -1104,15 +901,12 @@ def set_car_archive(
             .with_for_update()
             .first()
         )
-
         if not car:
             raise HTTPException(
                 status_code=404,
                 detail="Автомобіль не знайдено."
             )
-
         car.is_archived = data.is_archived
-
         if not data.is_archived:
             pending_bookings = (
                 db.query(Booking)
@@ -1123,14 +917,11 @@ def set_car_archive(
                 .with_for_update()
                 .all()
             )
-
             for booking in pending_bookings:
                 booking.status = "rejected"
                 booking.decided_at = datetime.utcnow()
                 booking.purchase_price = None
-
         db.commit()
-
         return {
             "message": (
                 "Автомобіль переміщено в архів."
@@ -1144,8 +935,6 @@ def set_car_archive(
     except Exception:
         db.rollback()
         raise
-
-
 @app.delete("/api/admin/bookings/{booking_id}")
 def delete_booking(
     booking_id: int,
@@ -1154,32 +943,24 @@ def delete_booking(
     booking = db.query(Booking).filter(
         Booking.id == booking_id
     ).first()
-
     if not booking:
         raise HTTPException(
             status_code=404,
             detail="Бронювання не знайдено."
         )
-
     if booking.status == "approved":
         raise HTTPException(
             status_code=409,
             detail="Підтверджену покупку не можна видаляти."
         )
-
     db.delete(booking)
     db.commit()
-
     return {"message": "Бронювання видалено."}
-
-
 @app.get("/api/reviews")
 def get_reviews(
     db: Session = Depends(get_db)
 ):
     return db.query(Review).all()
-
-
 @app.post("/api/reviews")
 def add_review(
     data: ReviewCreate,
@@ -1190,19 +971,14 @@ def add_review(
             status_code=400,
             detail="Оцінка має бути від 1 до 5."
         )
-
     review = Review(
         author=data.author,
         comment=data.comment,
         rating=data.rating
     )
-
     db.add(review)
     db.commit()
-
     return {"message": "Відгук додано!"}
-
-
 @app.get("/api/forum")
 def get_forum(
     db: Session = Depends(get_db)
@@ -1210,12 +986,10 @@ def get_forum(
     messages = db.query(ForumMessage).order_by(
         ForumMessage.created_at.asc()
     ).all()
-
     emails = {
         message.user_email
         for message in messages
     }
-
     users = (
         db.query(User)
         .filter(User.email.in_(emails))
@@ -1223,16 +997,23 @@ def get_forum(
         if emails
         else []
     )
-
     avatars = {
         user.email: user.avatar_url or ""
         for user in users
     }
+    counts = defaultdict(lambda: {"likes": 0, "dislikes": 0})
+    for mid, value, quantity in (
+        db.query(ForumReaction.message_id, ForumReaction.value, func.count(ForumReaction.id))
+        .group_by(ForumReaction.message_id, ForumReaction.value).all()
+    ):
+        counts[mid]["likes" if value == 1 else "dislikes"] = int(quantity)
 
     return {
         "messages": [
             {
                 "id": message.id,
+                "likes": counts[message.id]["likes"],
+                "dislikes": counts[message.id]["dislikes"],
                 "parent_id": message.parent_id,
                 "user_email": message.user_email,
                 "author": message.author,
@@ -1247,63 +1028,118 @@ def get_forum(
         ],
         "avatars": avatars
     }
-
-
 @app.post("/api/forum")
 def post_forum(
     data: ForumCreate,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(_forum_current_user),
     db: Session = Depends(get_db)
 ):
-    user = db.query(User).filter(
-        User.email == data.email
-    ).first()
-
-    if not user:
-        raise HTTPException(
-            status_code=403,
-            detail="Лише зареєстровані користувачі можуть писати у форум."
-        )
+    user = current_user
 
     text = (data.message or "").strip()
-
     if not text:
         raise HTTPException(
             status_code=400,
             detail="Повідомлення порожнє."
         )
-
     if len(text) > 1000:
         raise HTTPException(
             status_code=400,
             detail="Максимум 1000 символів."
         )
-
+    parent = None
     if data.parent_id is not None:
         parent = db.query(ForumMessage).filter(
             ForumMessage.id == data.parent_id
         ).first()
-
         if not parent:
             raise HTTPException(
                 status_code=404,
                 detail="Повідомлення, на яке ви відповідаєте, не знайдено."
             )
-
     message = ForumMessage(
         parent_id=data.parent_id,
         user_email=user.email,
         author=user.display_name,
         message=text
     )
-
     db.add(message)
     db.commit()
     db.refresh(message)
+
+    # Сповіщення тільки автору безпосереднього батьківського повідомлення.
+    if parent is not None and parent.user_email.casefold() != user.email.casefold():
+        recipient = db.query(User).filter(User.email == parent.user_email).first()
+        if recipient and recipient.email_alerts is not False:
+            background_tasks.add_task(
+                send_forum_reply_email,
+                recipient.email,
+                user.display_name,
+                text
+            )
 
     return {
         "message": "Повідомлення додано!",
         "id": message.id
     }
+
+class ForumReactionInput(BaseModel):
+    value: int
+
+
+@app.get("/api/forum/reactions/me")
+def my_forum_reactions(
+    current_user: User = Depends(_forum_current_user),
+    db: Session = Depends(get_db)
+):
+    rows = db.query(ForumReaction).filter(ForumReaction.user_id == current_user.id).all()
+    return {"reactions": {str(item.message_id): item.value for item in rows}}
+
+
+@app.put("/api/forum/{message_id}/reaction")
+def set_forum_reaction(
+    message_id: int,
+    data: ForumReactionInput,
+    current_user: User = Depends(_forum_current_user),
+    db: Session = Depends(get_db)
+):
+    if data.value not in (-1, 1):
+        raise HTTPException(status_code=422, detail="Вкажіть 1 для лайка або -1 для дизлайка.")
+    message = db.query(ForumMessage).filter(ForumMessage.id == message_id).first()
+    if message is None:
+        raise HTTPException(status_code=404, detail="Повідомлення не знайдено.")
+
+    # The database unique constraint is authoritative even across parallel requests.
+    from sqlalchemy.exc import IntegrityError
+    try:
+        vote = (db.query(ForumReaction)
+                  .filter(ForumReaction.message_id == message_id,
+                          ForumReaction.user_id == current_user.id)
+                  .with_for_update().first())
+        if vote is None:
+            db.add(ForumReaction(message_id=message_id, user_id=current_user.id, value=data.value))
+        else:
+            vote.value = data.value
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Реакція вже оновлюється. Спробуйте ще раз.")
+    return {"message_id": message_id, "value": data.value}
+
+
+@app.delete("/api/forum/{message_id}/reaction")
+def remove_forum_reaction(
+    message_id: int,
+    current_user: User = Depends(_forum_current_user),
+    db: Session = Depends(get_db)
+):
+    db.query(ForumReaction).filter(
+        ForumReaction.message_id == message_id,
+        ForumReaction.user_id == current_user.id
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"message_id": message_id, "value": None}
 
 
 @app.delete("/api/forum/{message_id}")
@@ -1315,13 +1151,11 @@ def delete_forum_message(
     message = db.query(ForumMessage).filter(
         ForumMessage.id == message_id
     ).first()
-
     if not message:
         raise HTTPException(
             status_code=404,
             detail="Повідомлення не знайдено."
         )
-
     if (
         message.user_email.casefold() != current_user.email.casefold()
         and not current_user.is_admin
@@ -1330,7 +1164,6 @@ def delete_forum_message(
             status_code=403,
             detail="Можна видаляти лише свої повідомлення."
         )
-
     try:
         db.query(ForumMessage).filter(
             ForumMessage.parent_id == message.id
@@ -1338,13 +1171,14 @@ def delete_forum_message(
             {ForumMessage.parent_id: message.parent_id},
             synchronize_session=False
         )
-
+        db.query(ForumReaction).filter(ForumReaction.message_id == message.id).delete(
+            synchronize_session=False
+        )
         db.delete(message)
         db.commit()
     except Exception:
         db.rollback()
         raise
-
     return {
         "message": "Повідомлення видалено, відповіді збережено.",
         "id": message_id

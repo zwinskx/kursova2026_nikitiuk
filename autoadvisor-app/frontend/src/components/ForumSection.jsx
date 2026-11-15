@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { MessageCircle, Reply, Send, Trash2, Lock, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MessageCircle, Reply, Send, Trash2, Lock, X, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useApp } from '../context/AppContext';
 
@@ -10,7 +10,7 @@ export default function ForumSection() {
   const {
     user, lang, setIsAuthModalOpen, setAuthMode,
     forumMessages, forumAvatars, forumInput, setForumInput,
-    handleSendForumMessage, postForumMessage, handleDeleteForumMessage
+    handleSendForumMessage, postForumMessage, handleDeleteForumMessage, fetchForumMessages
   } = useApp();
 
   const ua = lang === 'ua';
@@ -20,6 +20,66 @@ export default function ForumSection() {
   const [replyText, setReplyText] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [sendingReply, setSendingReply] = useState(false);
+  const API = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  const [myReactions, setMyReactions] = useState({});
+  const [votingId, setVotingId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!user?.access_token) {
+      setMyReactions({});
+      return;
+    }
+    const load = async () => {
+      try {
+        const response = await fetch(`${API}/api/forum/reactions/me`, {
+          headers: { Authorization: `Bearer ${user.access_token}` }
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!cancelled) setMyReactions(data.reactions || {});
+      } catch (error) {
+        console.error('Cannot load forum reactions:', error);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [API, user?.access_token]);
+
+  const reactToMessage = async (messageId, choice) => {
+    if (!user?.access_token) {
+      openLogin();
+      return;
+    }
+    if (votingId !== null) return;
+    setVotingId(messageId);
+    try {
+      const current = myReactions[String(messageId)] || null;
+      const remove = current === choice;
+      const response = await fetch(`${API}/api/forum/${messageId}/reaction`, {
+        method: remove ? 'DELETE' : 'PUT',
+        headers: {
+          Authorization: `Bearer ${user.access_token}`,
+          ...(!remove ? { 'Content-Type': 'application/json' } : {})
+        },
+        ...(!remove ? { body: JSON.stringify({ value: choice }) } : {})
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.detail || 'Не вдалося зберегти реакцію.');
+      setMyReactions(prev => {
+        const next = { ...prev };
+        if (remove) delete next[String(messageId)];
+        else next[String(messageId)] = choice;
+        return next;
+      });
+      await fetchForumMessages();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setVotingId(null);
+    }
+  };
+
 
   const tree = useMemo(() => {
     const byParent = {};
@@ -101,7 +161,7 @@ export default function ForumSection() {
     );
 
     return (
-      <div key={m.id} className={depth > 0 ? 'ml-5 pl-4 border-l border-slate-500/30' : ''}>
+      <div key={m.id} className={depth > 0 ? 'ml-2 sm:ml-5 pl-2 sm:pl-4 border-l border-slate-500/30' : ''}>
         <div className={`p-4 rounded-2xl border mb-3 ${
           dark
             ? 'bg-slate-900 border-slate-800 text-white'
@@ -130,6 +190,33 @@ export default function ForumSection() {
           <p className="text-xs font-medium leading-relaxed whitespace-pre-wrap break-words text-left">
             {m.message}
           </p>
+
+          <div className="mt-3 flex items-center gap-3 flex-wrap" role="group" aria-label={ua ? 'Реакції на повідомлення' : 'Message reactions'}>
+            {[
+              { value: 1, Icon: ThumbsUp, count: m.likes ?? 0, title: ua ? 'Подобається' : 'Like' },
+              { value: -1, Icon: ThumbsDown, count: m.dislikes ?? 0, title: ua ? 'Не подобається' : 'Dislike' }
+            ].map(({ value, Icon, count, title }) => {
+              const active = myReactions[String(m.id)] === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => reactToMessage(m.id, value)}
+                  disabled={votingId === m.id}
+                  aria-label={`${title}: ${count}`}
+                  aria-pressed={active}
+                  title={user ? title : (ua ? 'Увійдіть для голосування' : 'Sign in to vote')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 ${active
+                    ? 'border-emerald-500 bg-emerald-500/20 text-emerald-400'
+                    : dark ? 'border-slate-700 text-slate-300 hover:border-emerald-500' : 'border-slate-200 text-slate-600 hover:border-emerald-500'
+                  }`}
+                >
+                  <Icon size={15} strokeWidth={2} fill={active ? 'currentColor' : 'none'} />
+                  <span>{count}</span>
+                </button>
+              );
+            })}
+          </div>
 
           {user && depth < MAX_DEPTH && (
             <button
@@ -186,7 +273,7 @@ export default function ForumSection() {
   };
 
   return (
-    <div className={`border rounded-3xl p-8 mb-12 shadow-2xl text-left ${
+    <div className={`border rounded-3xl p-3 sm:p-8 mb-12 shadow-2xl text-left ${
       dark
         ? 'bg-[#121824] border-slate-800 text-white'
         : 'bg-white border-slate-200 text-slate-900'
@@ -197,7 +284,7 @@ export default function ForumSection() {
       <h3 className="text-2xl font-black mt-1 mb-6 flex items-center gap-2">
         <MessageCircle size={22} className="text-emerald-400" />
         {ua ? 'Форум обговорень' : 'Discussion forum'}
-        <span className="text-xs font-bold opacity-50">({forumMessages.length})</span>
+        <span className="text-xs font-bold opacity-50">({Array.isArray(forumMessages) ? forumMessages.length : 0})</span>
       </h3>
 
       {user ? (
