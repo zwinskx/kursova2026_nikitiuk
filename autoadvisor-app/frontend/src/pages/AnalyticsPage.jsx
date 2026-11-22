@@ -32,7 +32,7 @@ export default function AnalyticsPage() {
     const year = Number(car.year);
     const age = (!isNaN(year) && year > 1990) ? Math.max(1, 2026 - year) : 3;
     const baseRate = 12 / age;
-    const mileage = Number(car.mileage) || 15000;
+    const mileage = Number(car.mileage_raw) || 15000;
     const mileageFactor = mileage / 50000;
     const liquidity = Number(car.liquidity_score) || 80;
     const liquidityBonus = liquidity * 0.02;

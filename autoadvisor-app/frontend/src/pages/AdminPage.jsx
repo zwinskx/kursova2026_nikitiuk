@@ -20,6 +20,8 @@ import {
 
 import { useTheme } from '../context/ThemeContext';
 import { useApp } from '../context/AppContext';
+import { convertCurrency, toUSD } from '../utils/currency';
+import { convertDistance } from '../utils/distance';
 
 const API = (
   import.meta.env.VITE_API_URL ||
@@ -54,6 +56,7 @@ export default function AdminPage() {
     fetchAdminBookings,
     cars,
     fetchCars,
+    currency,
     formatPrice,
     editingCar,
     setEditingCar,
@@ -80,6 +83,9 @@ export default function AdminPage() {
 
   const [addTried, setAddTried] = useState(false);
   const [editTried, setEditTried] = useState(false);
+
+  const [newPriceCurrency, setNewPriceCurrency] = useState(currency);
+const [editingPriceCurrency, setEditingPriceCurrency] = useState(currency);
 
   const [processingBookingId, setProcessingBookingId] = useState(null);
   const [processingCarId, setProcessingCarId] = useState(null);
@@ -487,32 +493,47 @@ export default function AdminPage() {
   }
 };
 
-  const openEdit = car => {
-    setEditingCar({
-      ...car,
-      images: (
-        Array.isArray(car.images) && car.images.length
-          ? car.images
-          : [car.image_url]
-      ).filter(Boolean),
-      mileage:
-        car.mileage_raw !== undefined
-          ? car.mileage_raw
-          : parseInt(
-              String(car.mileage).replace(/\D/g, ''),
-              10
-            ) || '',
-      discount: car.discount ?? '',
-      liquidity_score:
-        car.liquidity_score ??
-        car.custom_liquidity ??
-        ''
-    });
+  
+const openEdit = car => {
+  setEditingCar({
+    ...car,
+    images: (
+      Array.isArray(car.images) && car.images.length
+        ? car.images
+        : [car.image_url]
+    ).filter(Boolean),
 
-    setEditingMileageUnit(distanceUnit);
-    setEditTried(false);
-    changeTab('edit');
-  };
+    mileage: convertDistance(
+      car.mileage_raw ?? (
+        parseInt(
+          String(car.mileage).replace(/\D/g, ''),
+          10
+        ) || ''
+      ),
+      'mi',
+      distanceUnit
+    ),
+
+    price: convertCurrency(
+      car.price,
+      'USD',
+      currency
+    ),
+
+    discount: car.discount ?? '',
+
+    liquidity_score:
+      car.liquidity_score ??
+      car.custom_liquidity ??
+      ''
+  });
+
+  setEditingMileageUnit(distanceUnit);
+  setEditingPriceCurrency(currency);
+  setEditTried(false);
+  changeTab('edit');
+};
+
 
   const validateCar = (car, liquidityKey, needImage) => {
     const errors = {};
@@ -556,10 +577,10 @@ export default function AdminPage() {
     }
 
     if (
-      emptyValue(car.mileage) ||
-      !Number.isFinite(Number(car.mileage)) ||
-      Number(car.mileage) < 0
-    ) {
+  emptyValue(car.mileage) ||
+  !Number.isInteger(Number(car.mileage)) ||
+  Number(car.mileage) < 0
+) {
       errors.mileage = tr(
         'Введіть правильний пробіг',
         'Enter valid mileage'
@@ -627,7 +648,7 @@ export default function AdminPage() {
       ).length > 0
     ) return;
 
-    handleAddCar(event);
+    handleAddCar(event, newPriceCurrency);
     setAddTried(false);
   };
 
@@ -641,7 +662,7 @@ export default function AdminPage() {
       ).length > 0
     ) return;
 
-    handleUpdateCar(event);
+    handleUpdateCar(event, editingPriceCurrency);
     setEditTried(false);
   };
 
@@ -758,6 +779,56 @@ export default function AdminPage() {
       return next;
     });
   };
+
+
+const changePriceCurrency = (editing, nextCurrency) => {
+  const previousCurrency = editing
+    ? editingPriceCurrency
+    : newPriceCurrency;
+
+  const setter = editing ? setEditingCar : setNewCar;
+
+  setter(prev => prev ? {
+    ...prev,
+    price: emptyValue(prev.price)
+      ? ''
+      : convertCurrency(
+          prev.price,
+          previousCurrency,
+          nextCurrency
+        )
+  } : prev);
+
+  if (editing) {
+    setEditingPriceCurrency(nextCurrency);
+  } else {
+    setNewPriceCurrency(nextCurrency);
+  }
+};
+
+const changeMileageUnit = (editing, nextUnit) => {
+  const previousUnit = editing
+    ? editingMileageUnit
+    : newCarMileageUnit;
+
+  const setter = editing ? setEditingCar : setNewCar;
+
+  setter(prev => prev ? {
+    ...prev,
+    mileage: convertDistance(
+      prev.mileage,
+      previousUnit,
+      nextUnit
+    )
+  } : prev);
+
+  if (editing) {
+    setEditingMileageUnit(nextUnit);
+  } else {
+    setNewCarMileageUnit(nextUnit);
+  }
+};
+
 
   const renderField = (
     editing,
@@ -879,6 +950,10 @@ export default function AdminPage() {
       ? editingMileageUnit
       : newCarMileageUnit;
 
+      const priceCurrency = editing
+        ? editingPriceCurrency
+         : newPriceCurrency;
+
     return (
       <form
         noValidate
@@ -996,58 +1071,115 @@ export default function AdminPage() {
             '2024'
           )}
 
-          {renderField(
-            editing,
-            'price',
-            currentText.priceLabel,
-            'number',
-            '45000'
-          )}
+         
+<div>
+  <div className="flex items-center justify-between gap-2 mb-1">
+    <label className={labelClass}>
+      {currentText.priceLabel}
+    </label>
 
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <label className={labelClass}>
-                {currentText.mileageLabel}
-              </label>
+    <select
+      value={priceCurrency}
+      onChange={event =>
+        changePriceCurrency(
+          editing,
+          event.target.value
+        )
+      }
+      aria-label={tr('Валюта ціни', 'Price currency')}
+      className={`text-xs font-bold bg-transparent text-emerald-500 outline-none ${
+        dark ? 'bg-slate-900' : 'bg-white'
+      }`}
+    >
+      <option value="USD">USD ($)</option>
+      <option value="UAH">UAH (₴)</option>
+      <option value="EUR">EUR (€)</option>
+    </select>
+  </div>
 
-              <select
-                value={mileageUnit}
-                onChange={event =>
-                  editing
-                    ? setEditingMileageUnit(event.target.value)
-                    : setNewCarMileageUnit(event.target.value)
-                }
-                className={`text-xs font-bold bg-transparent text-emerald-500 outline-none ${
-                  dark ? 'bg-slate-900' : 'bg-white'
-                }`}
-              >
-                <option value="mi">mi</option>
-                <option value="km">km</option>
-              </select>
-            </div>
+  <input
+    type="number"
+    min="0.01"
+    step="0.01"
+    value={car.price ?? ''}
+    placeholder={
+      priceCurrency === 'UAH'
+        ? '1800000'
+        : '45000'
+    }
+    onChange={event =>
+      updateField(
+        editing,
+        'price',
+        event.target.value === ''
+          ? ''
+          : Number(event.target.value)
+      )
+    }
+    className={inputClass(
+      (editing ? editErrors : addErrors).price
+    )}
+  />
 
-            <input
-              type="number"
-              value={car.mileage ?? ''}
-              placeholder="10000"
-              onChange={event =>
-                updateField(
-                  editing,
-                  'mileage',
-                  event.target.value === ''
-                    ? ''
-                    : Number(event.target.value)
-                )
-              }
-              className={inputClass(
-                (editing ? editErrors : addErrors).mileage
-              )}
-            />
+  <FieldError
+    message={(editing ? editErrors : addErrors).price}
+  />
+</div>
+          
+          
+<div>
+  <div className="flex items-center justify-between gap-2 mb-1">
+    <label className={labelClass}>
+      {currentText.mileageLabel}
+    </label>
 
-            <FieldError
-              message={(editing ? editErrors : addErrors).mileage}
-            />
-          </div>
+    <select
+      value={mileageUnit}
+      onChange={event =>
+        changeMileageUnit(
+          editing,
+          event.target.value
+        )
+      }
+      aria-label={tr('Одиниці пробігу', 'Mileage unit')}
+      className={`text-xs font-bold bg-transparent text-emerald-500 outline-none ${
+        dark ? 'bg-slate-900' : 'bg-white'
+      }`}
+    >
+      <option value="km">км</option>
+      <option value="mi">mi</option>
+    </select>
+  </div>
+
+  <input
+    type="number"
+    min="0"
+    step="1"
+    value={car.mileage ?? ''}
+    placeholder={
+      mileageUnit === 'km'
+        ? '16000'
+        : '10000'
+    }
+    onChange={event =>
+      updateField(
+        editing,
+        'mileage',
+        event.target.value === ''
+          ? ''
+          : Number(event.target.value)
+      )
+    }
+    className={inputClass(
+      (editing ? editErrors : addErrors).mileage
+    )}
+  />
+
+  <FieldError
+    message={(editing ? editErrors : addErrors).mileage}
+  />
+</div>
+
 
           {renderField(
             editing,
@@ -1080,7 +1212,7 @@ export default function AdminPage() {
                 {toNumber(car.discount) > 0 ? (
                   <>
                     <span className="line-through text-slate-400">
-                      {formatPrice(toNumber(car.price))}
+                      {formatPrice(toUSD(toNumber(car.price), priceCurrency))}
                     </span>
 
                     <span className="text-emerald-500 font-bold">

@@ -7,16 +7,16 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 
-export default function CarDetailModal({
-  car,
+export default function CarComparisonModal({
   isOpen,
   onClose,
+  car1,
+  car2,
   theme,
   lang,
   formatPrice,
-  formatMileage,
-  onBook
-}) {
+  formatMileage
+})  {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {

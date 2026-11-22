@@ -8,6 +8,14 @@ import React, {
 
 import { t } from '../constants/translations';
 
+import {
+  CURRENCY_RATES,
+  CURRENCY_SYMBOLS,
+  toUSD
+} from '../utils/currency';
+
+import { convertDistance } from '../utils/distance';
+
 const AppContext = createContext(null);
 
 const asObject = value => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -117,8 +125,8 @@ export function AppProvider({ children }) {
   const [isFullComparisonOpen, setIsFullComparisonOpen] = useState(false);
 
   const [editingCar, setEditingCar] = useState(null);
-  const [editingMileageUnit, setEditingMileageUnit] = useState('mi');
-  const [newCarMileageUnit, setNewCarMileageUnit] = useState('mi');
+ const [editingMileageUnit, setEditingMileageUnit] = useState(distanceUnit);
+const [newCarMileageUnit, setNewCarMileageUnit] = useState(distanceUnit);
 
   const [userPersonalData, setUserPersonalData] = useState(() => {
     try {
@@ -470,24 +478,18 @@ export function AppProvider({ children }) {
     });
   }, [cars, user?.email, appliedFilters]);
 
-  const formatPrice = (priceInUSD) => {
-    const price = Number(priceInUSD) || 0;
-    let rate = 1;
-    let symbol = '$';
+  
+const formatPrice = (priceInUSD) => {
+  const price = Number(priceInUSD) || 0;
 
-    if (currency === 'EUR') {
-      rate = 0.92;
-      symbol = '€';
-    }
+  const rate = CURRENCY_RATES[currency] ?? 1;
+  const symbol = CURRENCY_SYMBOLS[currency] ?? '$';
 
-    if (currency === 'UAH') {
-      rate = 41.5;
-      symbol = '₴';
-    }
+  const converted = Math.round(price * rate);
 
-    const converted = Math.round(price * rate);
-    return `${converted.toLocaleString()} ${symbol}`;
-  };
+  return `${converted.toLocaleString()} ${symbol}`;
+};
+
 
   const getFinalPrice = (car) => {
     const price = Number(car?.price) || 0;
@@ -496,23 +498,29 @@ export function AppProvider({ children }) {
     return Math.round(price * (1 - discount / 100));
   };
 
-  const formatMileage = (mileageInMiles) => {
-    if (typeof mileageInMiles !== 'number') {
-      return mileageInMiles;
-    }
+  
+const formatMileage = (mileageInMiles) => {
+  if (mileageInMiles === '' || mileageInMiles == null) {
+    return '—';
+  }
 
-    if (distanceUnit === 'km') {
-      const km = Math.round(mileageInMiles * 1.60934);
+  const value = convertDistance(
+    mileageInMiles,
+    'mi',
+    distanceUnit
+  );
 
-      return `${km.toLocaleString()} ${
-        lang === 'ua' ? 'км' : 'km'
-      }`;
-    }
+  if (!Number.isFinite(value)) return '—';
 
-    return `${mileageInMiles.toLocaleString()} ${
-      lang === 'ua' ? 'миль' : 'mi'
-    }`;
-  };
+  return `${value.toLocaleString(
+    lang === 'ua' ? 'uk-UA' : 'en-US'
+  )} ${
+    distanceUnit === 'km'
+      ? (lang === 'ua' ? 'км' : 'km')
+      : (lang === 'ua' ? 'миль' : 'mi')
+  }`;
+};
+
 
   const handleApplyFilters = () => {
     setAppliedFilters({
@@ -658,9 +666,22 @@ export function AppProvider({ children }) {
         user_id: prev.user_id || prev.id
       }));
 
-      setLang(settingsLang);
-      setCurrency(settingsCurrency);
-      setDistanceUnit(settingsDistance);
+      
+setLang(settingsLang);
+setCurrency(settingsCurrency);
+setDistanceUnit(settingsDistance);
+
+setNewCar(prev => ({
+  ...prev,
+  mileage: convertDistance(
+    prev.mileage,
+    newCarMileageUnit,
+    settingsDistance
+  )
+}));
+
+setNewCarMileageUnit(settingsDistance);
+
 
       setCurrentPass('');
       setNewPass('');
@@ -738,107 +759,112 @@ export function AppProvider({ children }) {
     }
   };
 
-  const handleAddCar = async (e) => {
-    e.preventDefault();
+  
+const handleAddCar = async (e, inputPriceCurrency = 'USD') => {
+  e.preventDefault();
 
-    let rawMileage = Number(newCar.mileage) || 0;
+  const rawMileage = convertDistance(
+    newCar.mileage,
+    newCarMileageUnit,
+    'mi'
+  );
 
-    if (newCarMileageUnit === 'km') {
-      rawMileage = Math.round(rawMileage / 1.60934);
+  const images = newCar.images?.length
+    ? newCar.images
+    : [newCar.image_url].filter(Boolean);
+
+  const payload = {
+    ...newCar,
+    images,
+    image_url: images[0] || '',
+    mileage: rawMileage,
+    price: toUSD(newCar.price, inputPriceCurrency)
+  };
+
+  try {
+    const response = await fetch(`${API}/api/admin/cars`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to add car');
     }
 
-    const images = newCar.images?.length
-      ? newCar.images
-      : [newCar.image_url].filter(Boolean);
+    alert(
+      lang === 'ua'
+        ? 'Автомобіль успішно додано в базу!'
+        : 'Vehicle added successfully!'
+    );
 
-    const payload = {
-      ...newCar,
-      images,
-      image_url: images[0] || '',
-      mileage: rawMileage
-    };
+    setNewCar(initialNewCarState);
+    await fetchCars();
+  } catch (error) {
+    alert(error.message);
+  }
+};
 
-    try {
-      const response = await fetch(`${API}/api/admin/cars`, {
-        method: 'POST',
+
+ 
+const handleUpdateCar = async (e, inputPriceCurrency = 'USD') => {
+  e.preventDefault();
+
+  if (!editingCar) return;
+
+  const rawMileage = convertDistance(
+    editingCar.mileage,
+    editingMileageUnit,
+    'mi'
+  );
+
+  const images = editingCar.images?.length
+    ? editingCar.images
+    : [editingCar.image_url].filter(Boolean);
+
+  const payload = {
+    ...editingCar,
+    images,
+    image_url: images[0] || '',
+    mileage: rawMileage,
+    price: toUSD(editingCar.price, inputPriceCurrency),
+    year: Number(editingCar.year) || 2024,
+    custom_liquidity:
+      Number(editingCar.liquidity_score) || 85,
+    discount: Number(editingCar.discount) || 0
+  };
+
+  try {
+    const response = await fetch(
+      `${API}/api/admin/cars/${editingCar.id}`,
+      {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to add car');
       }
+    );
 
-      alert(
-        lang === 'ua'
-          ? 'Автомобіль успішно додано в базу!'
-          : 'Vehicle added successfully!'
-      );
+    const data = await response.json();
 
-      setNewCar(initialNewCarState);
-      await fetchCars();
-    } catch (error) {
-      alert(error.message);
-    }
-  };
-
-  const handleUpdateCar = async (e) => {
-    e.preventDefault();
-
-    if (!editingCar) return;
-
-    let rawMileage = Number(editingCar.mileage) || 0;
-
-    if (editingMileageUnit === 'km') {
-      rawMileage = Math.round(rawMileage / 1.60934);
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to update car');
     }
 
-    const images = editingCar.images?.length
-      ? editingCar.images
-      : [editingCar.image_url].filter(Boolean);
+    setEditingCar(null);
+    await fetchCars();
 
-    const payload = {
-      ...editingCar,
-      images,
-      image_url: images[0] || '',
-      mileage: rawMileage,
-      price: Number(editingCar.price) || 0,
-      year: Number(editingCar.year) || 2024,
-      custom_liquidity:
-        Number(editingCar.liquidity_score) || 85,
-      discount: Number(editingCar.discount) || 0
-    };
+    alert(
+      lang === 'ua'
+        ? 'Автомобіль оновлено!'
+        : 'Vehicle updated!'
+    );
+  } catch (error) {
+    alert(error.message);
+  }
+};
 
-    try {
-      const response = await fetch(
-        `${API}/api/admin/cars/${editingCar.id}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Failed to update car');
-      }
-
-      setEditingCar(null);
-      await fetchCars();
-
-      alert(
-        lang === 'ua'
-          ? 'Автомобіль оновлено!'
-          : 'Vehicle updated!'
-      );
-    } catch (error) {
-      alert(error.message);
-    }
-  };
 
   const handleToggleSave = (carId) => {
     if (!user) {

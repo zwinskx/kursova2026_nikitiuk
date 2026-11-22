@@ -58,7 +58,7 @@ export default function RecentPage() {
                   </div>
 
                   <p className={`text-xs font-semibold text-left ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
-                    {car.body_type} • {car.year} • ⚙️ {car.engine_volume || '2.0L'} • {formatMileage(car.mileage ?? 15000)}
+                    {car.body_type} • {car.year} • ⚙️ {car.engine_volume || '2.0L'} • {formatMileage(car.mileage_raw)}
                   </p>
 
                   <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
