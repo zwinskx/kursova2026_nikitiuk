@@ -68,5 +68,18 @@ def send_gmail_message(
         timeout=30
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        # Виводимо причину Gmail API, але ніколи не показуємо токени.
+        try:
+            details = response.json().get("error", {})
+            if isinstance(details, dict):
+                reason = str(details.get("message", ""))[:250]
+            else:
+                reason = ""
+        except (ValueError, TypeError, AttributeError):
+            reason = ""
+        raise RuntimeError(
+            f"Gmail API повернув HTTP {response.status_code}"
+            + (f": {reason}" if reason else "")
+        )
     return True

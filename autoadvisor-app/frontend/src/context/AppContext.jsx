@@ -808,63 +808,61 @@ const handleAddCar = async (e, inputPriceCurrency = 'USD') => {
 };
 
 
- 
-const handleUpdateCar = async (e, inputPriceCurrency = 'USD') => {
-  e.preventDefault();
+  const handleUpdateCar = async (e) => {
+    e.preventDefault();
 
-  if (!editingCar) return;
+    if (!editingCar) return;
 
-  const rawMileage = convertDistance(
-    editingCar.mileage,
-    editingMileageUnit,
-    'mi'
-  );
+    let rawMileage = Number(editingCar.mileage) || 0;
 
-  const images = editingCar.images?.length
-    ? editingCar.images
-    : [editingCar.image_url].filter(Boolean);
-
-  const payload = {
-    ...editingCar,
-    images,
-    image_url: images[0] || '',
-    mileage: rawMileage,
-    price: toUSD(editingCar.price, inputPriceCurrency),
-    year: Number(editingCar.year) || 2024,
-    custom_liquidity:
-      Number(editingCar.liquidity_score) || 85,
-    discount: Number(editingCar.discount) || 0
-  };
-
-  try {
-    const response = await fetch(
-      `${API}/api/admin/cars/${editingCar.id}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.detail || 'Failed to update car');
+    if (editingMileageUnit === 'km') {
+      rawMileage = Math.round(rawMileage / 1.60934);
     }
 
-    setEditingCar(null);
-    await fetchCars();
+    const images = editingCar.images?.length
+      ? editingCar.images
+      : [editingCar.image_url].filter(Boolean);
 
-    alert(
-      lang === 'ua'
-        ? 'Автомобіль оновлено!'
-        : 'Vehicle updated!'
-    );
-  } catch (error) {
-    alert(error.message);
-  }
-};
+    const payload = {
+      ...editingCar,
+      images,
+      image_url: images[0] || '',
+      mileage: rawMileage,
+      price: Number(editingCar.price) || 0,
+      year: Number(editingCar.year) || 2024,
+      custom_liquidity:
+        Number(editingCar.liquidity_score) || 85,
+      discount: Number(editingCar.discount) || 0
+    };
 
+    try {
+      const response = await fetch(
+        `${API}/api/admin/cars/${editingCar.id}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Failed to update car');
+      }
+
+      setEditingCar(null);
+      await fetchCars();
+
+      alert(
+        lang === 'ua'
+          ? 'Автомобіль оновлено!'
+          : 'Vehicle updated!'
+      );
+    } catch (error) {
+      alert(error.message);
+    }
+  };
 
   const handleToggleSave = (carId) => {
     if (!user) {

@@ -1218,7 +1218,7 @@ const changeMileageUnit = (editing, nextUnit) => {
                     <span className="text-emerald-500 font-bold">
                       {formatPrice(
                         Math.round(
-                          toNumber(car.price) *
+                          toUSD(toNumber(car.price), priceCurrency) *
                           (1 - toNumber(car.discount) / 100)
                         )
                       )}

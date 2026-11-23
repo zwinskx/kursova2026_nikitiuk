@@ -606,6 +606,7 @@ function AppContent() {
           theme={theme}
           lang={lang}
           formatPrice={formatPrice}
+          formatMileage={formatMileage}
         />
 
         {selectedCarForModal && (

@@ -198,23 +198,10 @@ def send_reset_code_email(
     </html>
     """
 
-    try:
-        result = _send_message(
-            to_email=to_email,
-            subject=subject,
-            text=text,
-            html=html
-        )
-
-        print(
-            f"Код відновлення успішно надіслано на {to_email}"
-        )
-
-        return result
-
-    except Exception as error:
-        print(
-            f"Помилка надсилання коду на {to_email}: "
-            f"{type(error).__name__}: {error}"
-        )
-        return False
+    # Винятки не приховуємо: API повинен знати, якщо лист не надісланий.
+    return _send_message(
+        to_email=to_email,
+        subject=subject,
+        text=text,
+        html=html
+    )

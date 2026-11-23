@@ -14,6 +14,8 @@ import hmac
 
 import json
 
+import logging
+
 from collections import defaultdict
 
 from datetime import datetime
@@ -244,6 +246,8 @@ def user_payload(user, message: str):
 
     }
 
+logger = logging.getLogger(__name__)
+
 RESET_CODE_TTL = 10 * 60
 
 MAX_RESET_ATTEMPTS = 5
@@ -258,6 +262,7 @@ class VerifyCodeRequest(BaseModel):
 
 def check_reset_code(email: str, code: str):
 
+    email = email.strip().casefold()
     entry = reset_codes_db.get(email)
 
     if not entry or time.time() > entry["expires"]:
@@ -771,100 +776,75 @@ def login_user(
     return user_payload(user, "Вхід успішний!")
 
 @app.post("/api/auth/forgot-password")
-
 def forgot_password(
-
     data: ForgotPasswordRequest,
-
     db: Session = Depends(get_db)
-
 ):
-
+    normalized_email = data.email.strip().casefold()
     user = db.query(User).filter(
-
-        User.email == data.email
-
-    ).first()
-
-    if user:
-
-        code = f"{secrets.randbelow(900000) + 100000}"
-
-        reset_codes_db[data.email] = {
-
-            "code": code,
-
-            "expires": time.time() + RESET_CODE_TTL,
-
-            "attempts": 0
-
-        }
-
-        try:
-
-            send_reset_code_email(
-
-                to_email=data.email,
-
-                title="Код відновлення пароля",
-
-                code=code
-
-            )
-
-        except Exception as error:
-
-            print("Email error:", type(error).__name__)
-
-    return {
-
-        "message": "Якщо адреса зареєстрована, код відновлення надіслано."
-
-    }
-
-@app.post("/api/auth/reset-password")
-
-def reset_password(
-
-    data: ResetPasswordRequest,
-
-    db: Session = Depends(get_db)
-
-):
-
-    check_reset_code(data.email, data.code)
-
-    if len(data.new_password) < 8:
-
-        raise HTTPException(
-
-            status_code=400,
-
-            detail="Пароль має містити мінімум 8 символів."
-
-        )
-
-    user = db.query(User).filter(
-
-        User.email == data.email
-
+        func.lower(User.email) == normalized_email
     ).first()
 
     if not user:
-
         raise HTTPException(
-
             status_code=404,
+            detail="Акаунта з такою електронною поштою не знайдено."
+        )
 
-            detail="Користувача не знайдено."
+    code = f"{secrets.randbelow(900000) + 100000}"
 
+    try:
+        sent = send_reset_code_email(
+            to_email=user.email,
+            title="Код відновлення пароля",
+            code=code
+        )
+        if not sent:
+            raise RuntimeError("Поштовий сервіс не підтвердив відправлення листа")
+    except Exception:
+        logger.exception("Не вдалося відправити код відновлення (user_id=%s)", user.id)
+        raise HTTPException(
+            status_code=503,
+            detail="Не вдалося надіслати лист. Спробуйте пізніше або зверніться до підтримки."
+        )
+
+    # Зберігаємо код лише після успішного виклику Gmail API.
+    reset_codes_db[normalized_email] = {
+        "code": code,
+        "expires": time.time() + RESET_CODE_TTL,
+        "attempts": 0
+    }
+
+    return {"message": "Код відновлення надіслано на вашу пошту."}
+
+@app.post("/api/auth/reset-password")
+def reset_password(
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    normalized_email = data.email.strip().casefold()
+
+    user = db.query(User).filter(
+        func.lower(User.email) == normalized_email
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="Акаунта з такою електронною поштою не знайдено."
+        )
+
+    check_reset_code(normalized_email, data.code)
+
+    if len(data.new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="Пароль має містити мінімум 8 символів."
         )
 
     user.password = data.new_password
-
     db.commit()
-
-    reset_codes_db.pop(data.email, None)
+    reset_codes_db.pop(normalized_email, None)
 
     return {"message": "Пароль успішно змінено!"}
 

@@ -16,6 +16,7 @@ export default function ForgotPasswordForm() {
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
 
   const inputCls = `w-full p-3 border rounded-xl text-xs ${dark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'}`;
   const btnCls = 'w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-lg cursor-pointer';
@@ -35,14 +36,18 @@ export default function ForgotPasswordForm() {
   };
 
   const sendCode = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
+    setEmailError('');
     setLoading(true);
     try {
-      await post('/api/auth/forgot-password', { email: emailInput.trim() });
+      const email = emailInput.trim().toLowerCase();
+      await post('/api/auth/forgot-password', { email });
+      setEmailInput(email);
       setCode('');
       setStep(2);
     } catch (err) {
-      alert(err.message);
+      setEmailError(err.message);
+      setStep(1);
     } finally {
       setLoading(false);
     }
@@ -102,7 +107,8 @@ export default function ForgotPasswordForm() {
           <p className="text-xs opacity-70">
             {ua ? 'Введіть email акаунта, ми надішлемо 6-значний код.' : "Enter your account email and we'll send a 6-digit code."}
           </p>
-          <input type="email" required placeholder="Email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} className={inputCls} />
+          <input type="email" required placeholder="Email" value={emailInput} onChange={(e) => { setEmailInput(e.target.value); setEmailError(''); }} className={inputCls} />
+          {emailError && <p role="alert" className="text-xs text-red-500 mt-1">{emailError}</p>}
           <button type="submit" disabled={loading} className={btnCls}>{ua ? 'Надіслати код' : 'Send code'}</button>
         </form>
       )}
