@@ -10,25 +10,52 @@ import {
 export default function CarComparisonModal({
   isOpen,
   onClose,
+  car,
   car1,
   car2,
-  theme,
-  lang,
+  onBook,
+  theme = 'dark',
+  lang = 'ua',
   formatPrice,
   formatMileage
-})  {
+}) {
   const [index, setIndex] = useState(0);
+
+  const selectedCar = car || car1 || car2 || null;
+
+  const ua = lang === 'ua' || lang === 'uk';
+  const dark = theme === 'dark';
+
+  const safeFormatPrice = (value) => {
+    if (typeof formatPrice === 'function') {
+      return formatPrice(value);
+    }
+
+    return `$${Number(value || 0).toLocaleString('en-US')}`;
+  };
+
+  const safeFormatMileage = (value) => {
+    if (value === null || value === undefined || value === '') {
+      return '—';
+    }
+
+    if (typeof formatMileage === 'function') {
+      return formatMileage(value);
+    }
+
+    return `${Number(value).toLocaleString('uk-UA')} км`;
+  };
 
   useEffect(() => {
     setIndex(0);
-  }, [car?.id, isOpen]);
+  }, [selectedCar?.id, isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || !selectedCar) return;
 
-    const handleKeyDown = event => {
+    const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
-        onClose();
+        onClose?.();
       }
     };
 
@@ -41,21 +68,22 @@ export default function CarComparisonModal({
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, selectedCar, onClose]);
 
-  if (!isOpen || !car) return null;
+  if (!isOpen || !selectedCar) {
+    return null;
+  }
 
-  const ua = lang === 'ua';
-  const dark = theme === 'dark';
+  const carData = selectedCar;
 
   const images = (
-    Array.isArray(car.images) && car.images.length
-      ? car.images
-      : Array.isArray(car.image_urls) && car.image_urls.length
-        ? car.image_urls
-        : [car.image_url]
+    Array.isArray(carData.images) && carData.images.length
+      ? carData.images
+      : Array.isArray(carData.image_urls) && carData.image_urls.length
+        ? carData.image_urls
+        : [carData.image_url]
   )
-    .map(image =>
+    .map((image) =>
       typeof image === 'string'
         ? image
         : image?.image_url || image?.url || ''
@@ -71,39 +99,48 @@ export default function CarComparisonModal({
 
   const discount = Math.max(
     0,
-    Math.min(100, Number(car.discount) || 0)
+    Math.min(100, Number(carData.discount) || 0)
   );
+
+  const originalPrice = Number(carData.price) || 0;
 
   const finalPrice = Math.round(
-    Number(car.price || 0) * (1 - discount / 100)
+    originalPrice * (1 - discount / 100)
   );
 
-  const archived = Boolean(car.is_archived);
-  const pending = car.booking_status === 'pending';
+  const archived = Boolean(carData.is_archived);
+
+  const pending = carData.booking_status === 'pending';
+
   const unavailable = archived || pending;
 
   const liquidity = Math.min(
     100,
-    Math.max(0, Number(car.liquidity_score) || 0)
+    Math.max(0, Number(carData.liquidity_score) || 0)
   );
 
   const specs = [
-    [ua ? 'Рік' : 'Year', car.year ?? '—'],
+    [
+      ua ? 'Рік' : 'Year',
+      carData.year ?? '—'
+    ],
     [
       ua ? 'Пробіг' : 'Mileage',
-      formatMileage(car.mileage_raw ?? car.mileage)
+      safeFormatMileage(
+        carData.mileage_raw ?? carData.mileage
+      )
     ],
     [
       ua ? 'Двигун' : 'Engine',
-      car.engine_volume || '2.0L'
+      carData.engine_volume || '2.0L'
     ],
     [
       ua ? 'Кузов' : 'Body',
-      car.body_type || '—'
+      carData.body_type || '—'
     ],
     [
       ua ? 'Коробка передач' : 'Transmission',
-      car.transmission || '—'
+      carData.transmission || '—'
     ],
     [
       ua ? 'Ліквідність' : 'Liquidity',
@@ -114,7 +151,7 @@ export default function CarComparisonModal({
   const previous = () => {
     if (images.length <= 1) return;
 
-    setIndex(prev =>
+    setIndex((prev) =>
       (prev - 1 + images.length) % images.length
     );
   };
@@ -122,31 +159,43 @@ export default function CarComparisonModal({
   const next = () => {
     if (images.length <= 1) return;
 
-    setIndex(prev =>
+    setIndex((prev) =>
       (prev + 1) % images.length
     );
+  };
+
+  const handleClose = () => {
+    if (typeof onClose === 'function') {
+      onClose();
+    }
   };
 
   const handleBook = () => {
     if (unavailable) return;
 
-    onClose();
-    onBook(car);
+    if (typeof onBook === 'function') {
+      handleClose();
+      onBook(carData);
+    } else {
+      console.warn(
+        'CarComparisonModal: onBook function was not provided.'
+      );
+    }
   };
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
-      onMouseDown={event => {
+      className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
+      onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
-          onClose();
+          handleClose();
         }
       }}
     >
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={car.title}
+        aria-label={carData.title || 'Car details'}
         className={`relative w-full max-w-6xl h-[94dvh] sm:h-[90dvh] lg:h-[740px] lg:max-h-[90dvh] min-h-0 overflow-y-auto lg:overflow-hidden rounded-3xl border shadow-2xl grid grid-cols-1 lg:grid-cols-[1.08fr_1fr] ${
           dark
             ? 'bg-[#0f172a] border-slate-700 text-white'
@@ -155,7 +204,7 @@ export default function CarComparisonModal({
       >
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           aria-label={ua ? 'Закрити' : 'Close'}
           className="absolute top-4 right-4 z-30 bg-black/75 hover:bg-black text-white rounded-full p-2.5 shadow-lg"
         >
@@ -188,7 +237,7 @@ export default function CarComparisonModal({
                 <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden">
                   <img
                     src={selectedImage}
-                    alt={`${car.title} — ${currentIndex + 1}`}
+                    alt={`${carData.title} — ${currentIndex + 1}`}
                     className="w-full h-full object-contain object-center transition-transform duration-500 ease-out"
                   />
                 </div>
@@ -196,6 +245,7 @@ export default function CarComparisonModal({
             ) : (
               <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-400">
                 <ImageIcon size={42} />
+
                 <span className="text-xs">
                   {ua
                     ? 'Фотографія відсутня'
@@ -204,9 +254,9 @@ export default function CarComparisonModal({
               </div>
             )}
 
-            {car.badge && (
+            {carData.badge && (
               <span className="absolute top-3 left-3 z-20 px-3 py-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-black uppercase shadow-lg">
-                {car.badge}
+                {carData.badge}
               </span>
             )}
 
@@ -233,7 +283,9 @@ export default function CarComparisonModal({
                 <button
                   type="button"
                   onClick={previous}
-                  aria-label={ua ? 'Попереднє фото' : 'Previous photo'}
+                  aria-label={
+                    ua ? 'Попереднє фото' : 'Previous photo'
+                  }
                   className="absolute left-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/70 hover:bg-black text-white p-2.5 shadow-lg"
                 >
                   <ChevronLeft size={20} />
@@ -242,7 +294,9 @@ export default function CarComparisonModal({
                 <button
                   type="button"
                   onClick={next}
-                  aria-label={ua ? 'Наступне фото' : 'Next photo'}
+                  aria-label={
+                    ua ? 'Наступне фото' : 'Next photo'
+                  }
                   className="absolute right-3 top-1/2 -translate-y-1/2 z-20 rounded-full bg-black/70 hover:bg-black text-white p-2.5 shadow-lg"
                 >
                   <ChevronRight size={20} />
@@ -260,7 +314,7 @@ export default function CarComparisonModal({
               {images.map((src, i) => (
                 <button
                   type="button"
-                  key={`${car.id}-${i}`}
+                  key={`${carData.id || 'car'}-${i}`}
                   onClick={() => setIndex(i)}
                   aria-label={`${ua ? 'Фото' : 'Photo'} ${i + 1}`}
                   className={`relative shrink-0 w-20 h-16 rounded-xl overflow-hidden border-2 transition-all ${
@@ -273,9 +327,11 @@ export default function CarComparisonModal({
                 >
                   <img
                     src={src}
-                    alt={`${car.title} ${i + 1}`}
+                    alt={`${carData.title} ${i + 1}`}
                     className={`w-full h-full object-contain ${
-                      dark ? 'bg-slate-900' : 'bg-slate-200'
+                      dark
+                        ? 'bg-slate-900'
+                        : 'bg-slate-200'
                     }`}
                   />
                 </button>
@@ -300,18 +356,18 @@ export default function CarComparisonModal({
 
             <div className="flex flex-wrap justify-between items-start gap-3 mt-2">
               <h2 className="text-xl sm:text-2xl font-black break-words min-w-0">
-                {car.title}
+                {carData.title || `${carData.brand || ''} ${carData.model || ''}`.trim() || 'Автомобіль'}
               </h2>
 
               <div className="text-left sm:text-right shrink-0">
                 {discount > 0 && (
                   <p className="line-through text-slate-400 text-xs">
-                    {formatPrice(car.price)}
+                    {safeFormatPrice(originalPrice)}
                   </p>
                 )}
 
                 <p className="text-xl font-black text-emerald-500">
-                  {formatPrice(finalPrice)}
+                  {safeFormatPrice(finalPrice)}
                 </p>
               </div>
             </div>
@@ -408,8 +464,9 @@ export default function CarComparisonModal({
                     : 'text-slate-700'
                 }`}
               >
-                {car.description?.trim()
-                  ? car.description
+                {typeof carData.description === 'string' &&
+                carData.description.trim()
+                  ? carData.description
                   : ua
                     ? 'Опис автомобіля відсутній.'
                     : 'No vehicle description available.'}
@@ -428,7 +485,9 @@ export default function CarComparisonModal({
                 ? (ua ? 'В архіві' : 'Archived')
                 : pending
                   ? (ua ? 'Заброньовано' : 'Reserved')
-                  : (ua ? 'Забронювати автомобіль' : 'Book now')}
+                  : (ua
+                      ? 'Забронювати автомобіль'
+                      : 'Book now')}
             </button>
           </div>
         </div>
