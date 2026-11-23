@@ -3,14 +3,9 @@ import os
 from html import escape
 
 from dotenv import load_dotenv
-from .gmail_api import send_gmail_message
+from .brevo_api import send_brevo_message
 
 load_dotenv()
-
-SENDER_EMAIL = os.getenv(
-    "GMAIL_SENDER_EMAIL",
-    "support.autoadvisor@gmail.com"
-)
 
 PUBLIC_SITE_URL = os.getenv(
     "PUBLIC_SITE_URL",
@@ -27,7 +22,7 @@ def _send_message(
     if not to_email or not to_email.strip():
         raise ValueError("Не вказано адресу одержувача.")
 
-    return send_gmail_message(
+    return send_brevo_message(
         to_email=to_email.strip(),
         subject=subject,
         text=text,

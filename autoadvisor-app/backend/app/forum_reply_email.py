@@ -3,7 +3,7 @@ import os
 from html import escape
 from urllib.parse import urlencode
 
-from .gmail_api import send_gmail_message
+from .brevo_api import send_brevo_message
 
 
 def send_forum_reply_email(
@@ -69,7 +69,7 @@ def send_forum_reply_email(
     </html>
     """
 
-    return send_gmail_message(
+    return send_brevo_message(
         to_email=to_email,
         subject=subject,
         text=text,

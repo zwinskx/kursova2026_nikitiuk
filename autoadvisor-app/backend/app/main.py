@@ -808,7 +808,7 @@ def forgot_password(
             detail="Не вдалося надіслати лист. Спробуйте пізніше або зверніться до підтримки."
         )
 
-    # Зберігаємо код лише після успішного виклику Gmail API.
+    # Зберігаємо код лише після успішного виклику Brevo API.
     reset_codes_db[normalized_email] = {
         "code": code,
         "expires": time.time() + RESET_CODE_TTL,
